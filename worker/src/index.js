@@ -116,7 +116,7 @@ export async function handle(request, env, deps = {}) {
     if (e instanceof AuthError) return json({ ok: false, error: e.message }, e.status, cors);
     if (e instanceof NotFoundError) return json({ ok: false, error: e.message }, 404, cors);
     console.error('[sg-todo] 처리 오류', e && e.stack || e);
-    return json({ ok: false, error: '처리 중 오류가 났습니다' }, 500, cors);
+    return json({ ok: false, error: '처리 중 오류가 났습니다: ' + String(e && e.message || e).slice(0, 200) }, 500, cors);
   }
 }
 
