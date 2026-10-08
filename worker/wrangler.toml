@@ -15,5 +15,9 @@ ALLOWED_EMAILS = "sgceo@sgsolutionss.com"
 # 브라우저에서 부를 수 있는 화면 주소 (쉼표로 구분)
 ALLOWED_ORIGINS = "https://sggit-png.github.io,http://localhost:8765"
 
+# 매일 06:00 한국시간(= 전날 21:00 UTC) — 인증 갱신·ISO·연간신고 할 일 자동 생성 + 휴지통 30일 정리
+[triggers]
+crons = ["0 21 * * *"]
+
 [observability]
 enabled = true

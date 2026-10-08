@@ -6,7 +6,7 @@
 //   get(path) → {id, path, data} | null
 //   query(collection, filters:[[field, op, value]], {limit, orderBy:[field,'desc'|'asc']}) → [{id, path, data}]
 //   list(collection) → 전체 문서
-//   transaction(async tx => …)  tx.get / tx.query / tx.create(path, data) / tx.update(path, data) / tx.set(path, data)
+//   transaction(async tx => …)  tx.get / tx.query / tx.create(path, data) / tx.update(path, data) / tx.set(path, data) / tx.delete(path)
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const SCOPE = 'https://www.googleapis.com/auth/datastore';
@@ -145,6 +145,7 @@ export function restDb({ projectId, saKey, fetchFn = fetch }) {
         create: (path, data) => writes.push({ update: { name: nameOf(path), fields: encodeFields(data) }, currentDocument: { exists: false } }),
         set: (path, data) => writes.push({ update: { name: nameOf(path), fields: encodeFields(data) } }),
         update: (path, data) => writes.push({ update: { name: nameOf(path), fields: encodeFields(data) }, updateMask: { fieldPaths: Object.keys(data) }, currentDocument: { exists: true } }),
+        delete: (path) => writes.push({ delete: nameOf(path) }),
       };
       let result;
       try { result = await fn(tx); }

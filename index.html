@@ -185,7 +185,7 @@ const ls = { get:(k,d)=>{try{return localStorage.getItem(k)??d;}catch{return d;}
 
 let todos = [], companies = [], rules = { ...core.RULES_DEFAULT }, acts = [];
 let me = ls.get(LS.me, ''), view = ls.get(LS.view, 'today'), weekOffset = 0, started = false, unsub = [];
-let hashOpened = false, migPreview = null;
+let hashOpened = false, migPreview = null, autoPreview = null;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 const now = () => Date.now();
@@ -550,8 +550,31 @@ function renderAdmin() {
       + '</table>' + (migPreview.remaining ? '<p class="info">이번에 ' + migPreview.count + '건, 나머지 ' + migPreview.remaining + '건은 다시 누르면 이어서 붙입니다.</p>' : '') + '</div>'
       : '<div class="empty">번호를 붙일 할 일이 없습니다. (이미 번호 있음 ' + migPreview.alreadyNumbered + '건)</div>';
   }
+  h += '</div><div class="sec"><h2>⚙️ 자동으로 생기는 할 일</h2><div style="padding:12px">'
+    + '<p style="margin:0 0 10px;font-size:13px;color:var(--text2)">인증 갱신(만료 90일 전) · ISO 차기심사(90일 전) · 연구소 연간신고(3월 1일~기한)를 <b>매일 아침 6시</b>에 쓰기 창구가 만듭니다. 같은 건은 두 번 만들지 않습니다. 휴지통 ' + core.TRASH_DAYS + '일 지난 할 일도 이때 지웁니다.</p>'
+    + '<button class="btn" onclick="autoPrev()">미리보기</button> '
+    + (autoPreview && autoPreview.count ? '<button class="btn primary" onclick="autoRun()">' + autoPreview.count + '건 지금 만들기</button>' : '')
+    + '</div>';
+  if (autoPreview) {
+    h += autoPreview.count ? '<div style="padding:0 12px 12px;overflow:auto"><table class="mig"><tr><th>출처</th><th>할 일</th><th>마감</th><th>D-day</th></tr>'
+      + autoPreview.items.map(i => '<tr><td>' + esc(SRC[i.source] || i.source) + '</td><td>' + esc(i.text) + '</td><td>' + esc(i.dueDate) + '</td><td>' + (i.dday < 0 ? '<b style="color:var(--miss)">' + (-i.dday) + '일 지남</b>' : 'D-' + i.dday) + '</td></tr>').join('')
+      + '</table></div>' : '<div class="empty">지금 새로 만들 할 일이 없습니다.</div>';
+  }
   return h + '</div>'
     + '<div class="sec"><h2>ℹ️ 이 화면</h2><div style="padding:12px;font-size:13px;color:var(--text2)">읽기는 데이터베이스를 실시간으로, 쓰기는 쓰기 창구(' + esc(API.replace('https://', '')) + ')를 거칩니다. 이 기기 사용자: <b>' + esc(me || '선택 안 함') + '</b> <button class="btn sm" onclick="pickMe()">바꾸기</button></div></div>';
+}
+async function autoPrev() {
+  try { autoPreview = await api('GET', '/api/admin/auto'); render(); }
+  catch (e) { fail(e); }
+}
+async function autoRun() {
+  if (!autoPreview || !autoPreview.count) return;
+  if (!confirm(autoPreview.count + '건을 지금 만듭니다. 계속할까요?')) return;
+  try {
+    const r = await api('POST', '/api/admin/auto', {});
+    toast((r.made.length ? r.made.length + '건 만듦' : '새로 만든 것 없음') + (r.purged.length ? ' · 휴지통 ' + r.purged.length + '건 정리' : '') + (r.errors.length ? ' · 오류 ' + r.errors.length + '건' : ''), r.errors.length > 0);
+    autoPreview = null; render();
+  } catch (e) { fail(e); }
 }
 async function migPrev() {
   try { migPreview = await api('GET', '/api/admin/migrate'); render(); }
@@ -568,7 +591,7 @@ async function migApply() {
 }
 
 window.addEventListener('hashchange', () => { hashOpened = false; openFromHash(); });
-Object.assign(window, { signIn, signOutNow, pickMe, setMe, setView, act, quickAdd, quickHint, openEdit, saveEdit, delTodo, closeModal, weekMove, migPrev, migApply });
+Object.assign(window, { signIn, signOutNow, pickMe, setMe, setView, act, quickAdd, quickHint, openEdit, saveEdit, delTodo, closeModal, weekMove, migPrev, migApply, autoPrev, autoRun });
 </script>
 </body>
 </html>

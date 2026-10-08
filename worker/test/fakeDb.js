@@ -5,7 +5,7 @@ export function fakeDb(seed = {}) {
   const docsIn = (col) => [...store.entries()]
     .filter(([p]) => p.startsWith(col + '/') && p.split('/').length === 2)
     .map(([path, data]) => ({ id: path.split('/')[1], path, data: structuredClone(data) }));
-  const cmp = { '==': (a, b) => a === b, '>=': (a, b) => a >= b, '<=': (a, b) => a <= b, '>': (a, b) => a > b, '<': (a, b) => a < b };
+  const cmp = { 'in': (a, b) => b.includes(a), '==': (a, b) => a === b, '>=': (a, b) => a >= b, '<=': (a, b) => a <= b, '>': (a, b) => a > b, '<': (a, b) => a < b };
   function query(col, filters = [], opts = {}) {
     let rows = docsIn(col).filter(d => filters.every(([f, op, v]) => d.data[f] !== undefined && cmp[op](d.data[f], v)));
     if (opts.orderBy) {
@@ -32,6 +32,7 @@ export function fakeDb(seed = {}) {
         create: (p, d) => writes.push(['create', p, d]),
         set: (p, d) => writes.push(['set', p, d]),
         update: (p, d) => writes.push(['update', p, d]),
+        delete: (p) => writes.push(['delete', p, null]),
       };
       const result = await fn(tx);
       for (const [op] of writes) if (!op) throw new Error('bad');
@@ -40,7 +41,8 @@ export function fakeDb(seed = {}) {
         if (op === 'update' && !store.has(p)) throw new Error('없는 문서: ' + p);
       }
       for (const [op, p, d] of writes) {
-        if (op === 'update') store.set(p, Object.assign(store.get(p), structuredClone(d)));
+        if (op === 'delete') store.delete(p);
+        else if (op === 'update') store.set(p, Object.assign(store.get(p), structuredClone(d)));
         else store.set(p, structuredClone(d));
       }
       if (writes.length) commits++;

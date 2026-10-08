@@ -20,11 +20,14 @@ SG솔루션 **할 일 프로그램**. 데이터는 SGCRM Firebase(`sg-crm-f9adc`
 | `worker/src/firestore.js` | Firestore REST + 서비스 계정 토큰 |
 | `worker/src/auth.js` | Firebase 로그인 토큰 확인(허용 메일) · 스크립트 키 · 작성자(X-SG-User) |
 | `index.html` | **할 일 웹 화면** (GitHub Pages → https://sggit-png.github.io/sg-todo/). 읽기 = Firestore 실시간 구독, 쓰기 = 쓰기 창구 API. `worker/src/core.js`를 그대로 import (규칙 한 곳) |
+| `worker/src/auto.js` | 자동 생성(인증 갱신 D-90·ISO 차기심사 D-90·연구소 연간신고 3/1~기한 — SGCRM 규칙 그대로) + 휴지통 30일 정리. **매일 06:00 KST cron**(wrangler.toml) · 관리 탭 「지금 실행」 |
+| `/api/ingest` · `/api/admin/rebizno` | 드라이브 스크립트 v7(음성·채팅, X-Api-Key=INGEST_KEY) · SGCRM 사업자번호 변경 |
 | `worker/src/todos.js` 번호 붙이기 | `GET/POST /api/admin/migrate` — 기존 할 일 번호 부여(미리보기 → 적용, 여러 번 안전). 웹 「관리」 탭 |
 
 ## 데이터 규칙 요약
 - 번호 `no`(정수) → 표시 `T-0123`. 다음 번호는 `app_state/todo_seq.last` (트랜잭션)
 - 상태 `wait`·`ing`·`waiting`·`done`·`cancel`. 완료 시 `doneAt`, 다시 열면 지움. 상태·마감·메모·기다리는 대상이 바뀌면 `statusAt`
 - 작성자: 공용 계정이라 **화면/채팅이 고른 이름**(정석진·김학미·공동)을 `X-SG-User`로 받는다. 비면 쓰기 거절
-- 삭제 = 휴지통(`deletedAt`), 30일 뒤 완전 삭제(예약 작업 — 다음 단계)
+- 삭제 = 휴지통(`deletedAt`), 30일 뒤 완전 삭제(매일 06:00 예약 작업)
+- ⚠️ Cloudflare 무료 요금제 = 요청당 외부 호출 **50번** 제한 → 여러 건 쓰기는 트랜잭션 하나로 묶는다(`createMany`)
 - 모든 쓰기는 `activity` 컬렉션에 한 줄 기록 → SGCRM 통합제어 화면·에이전트가 「바뀐 것」을 본다

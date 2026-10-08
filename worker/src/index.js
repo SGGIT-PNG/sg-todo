@@ -13,6 +13,8 @@
 //   POST   /api/todos/T-0123/restore
 //   GET    /api/admin/migrate             기존 할 일 번호 붙이기 미리보기 (쓰지 않음)
 //   POST   /api/admin/migrate             적용 (번호 없는 것만, 여러 번 돌려도 안전)
+//   GET    /api/admin/auto                자동 생성 미리보기(인증 갱신·ISO·연간신고) / POST 지금 실행 (매일 06:00 예약 작업과 같음)
+//   POST   /api/admin/rebizno             {from, to} 사업자번호 변경 — 그 기업 할 일을 옮김 (SGCRM이 부름)
 //   POST   /api/ingest                    (드라이브 스크립트·비서, X-Api-Key) {text, source, sourceRef, company?, due?, memo?}
 //
 // 쓰기 요청에는 X-SG-User: 정석진|김학미|공동 (URL 인코딩) 헤더가 필요하다 — 공용 계정이라 사람을 따로 받는다.
@@ -22,10 +24,11 @@ import { authenticate, requireAuthor, AuthError } from './auth.js';
 import { RuleError } from './core.js';
 import {
   createTodo, updateTodo, completeTodo, deleteTodo, restoreTodo, listTodos, getTodo, changesSince, NotFoundError,
-  migratePreview, migrateApply,
+  migratePreview, migrateApply, rebizno,
 } from './todos.js';
+import { previewAuto, runAuto } from './auto.js';
 
-const INGEST_SOURCES = ['voice', 'secretary', 'card', 'lead'];
+const INGEST_SOURCES = ['voice', 'chat', 'secretary', 'card', 'lead'];   // chat = 드라이브 스크립트가 옮기는 채팅 「할일」 일정(MCP 전까지)
 
 function corsHeaders(request, env) {
   const origin = request.headers.get('origin') || '';
@@ -83,6 +86,10 @@ export async function handle(request, env, deps = {}) {
       if (actor.via !== 'web') throw new AuthError('웹 화면 로그인으로만 할 수 있습니다', 403);
       return json(Object.assign({ ok: true }, await migratePreview(db)), 200, cors);
     }
+    if (request.method === 'GET' && path === '/api/admin/auto') {
+      if (actor.via !== 'web') throw new AuthError('웹 화면 로그인으로만 할 수 있습니다', 403);
+      return json(Object.assign({ ok: true }, await previewAuto(db, nowMs)), 200, cors);
+    }
     if (request.method === 'GET' && path === '/api/changes') {
       const q = url.searchParams;
       return json(Object.assign({ ok: true }, await changesSince(db, { since: q.get('since'), company: q.get('company') || '' }, nowMs)), 200, cors);
@@ -101,6 +108,8 @@ export async function handle(request, env, deps = {}) {
     }
     requireAuthor(actor);
     if (request.method === 'POST' && path === '/api/admin/migrate') return json(Object.assign({ ok: true }, await migrateApply(ctx)), 200, cors);
+    if (request.method === 'POST' && path === '/api/admin/auto') return json(Object.assign({ ok: true }, await runAuto(db, nowMs)), 200, cors);
+    if (request.method === 'POST' && path === '/api/admin/rebizno') return json(Object.assign({ ok: true }, await rebizno(ctx, body.from, body.to)), 200, cors);
     if (request.method === 'POST' && path === '/api/todos') {
       const { source, sourceRef, ...fields } = body;
       const src = ['manual', 'lead', 'card'].includes(source) ? source : 'manual';
@@ -122,4 +131,7 @@ export async function handle(request, env, deps = {}) {
 
 export default {
   fetch: (request, env) => handle(request, env),
+  // 매일 06:00(한국) — 자동 생성 + 휴지통 정리 (wrangler.toml [triggers])
+  scheduled: (event, env, ctx) => ctx.waitUntil(
+    runAuto(restDb({ projectId: env.FIREBASE_PROJECT, saKey: env.GCP_SA_KEY })).catch(e => console.error('[sg-todo 자동] 실패', e && e.stack || e))),
 };

@@ -286,3 +286,57 @@ export async function migrateApply(ctx) {
     return { applied: p.items.length, remaining: p.remaining, lastNo: p.lastNo, first: p.items[0].label, last: p.items[p.items.length - 1].label };
   });
 }
+
+// ── 사업자번호 변경 반영 (SGCRM 「사업자번호 변경」 TEMP-… → 정식 번호) ── 그 기업의 할 일 bizno·기업명을 옮긴다
+export async function rebizno(ctx, from, to) {
+  const { db, actor, nowMs = Date.now() } = ctx;
+  from = String(from || '').trim(); to = String(to || '').trim();
+  if (!from || !to || from === to) throw new RuleError('바꿀 사업자번호(from·to)가 필요합니다');
+  const c = (await db.get('companies/' + to));
+  const name = c ? (c.data.name || '') : '';
+  return db.transaction(async (tx) => {
+    const rows = await tx.query('todos', [['bizno', '==', from]], {});
+    rows.forEach(r => tx.update(r.path, Object.assign({ bizno: to, updatedAt: nowMs, updatedBy: actor.name }, name ? { companyName: name } : {})));
+    if (rows.length) tx.create(activityPath(nowMs), {
+      at: nowMs, app: 'todo', ref: 'REBIZNO', no: 0, action: 'rebizno', by: actor.name, via: actor.via, email: actor.email || '', bizno: to, changes: {},
+      summary: actor.name + ' · 사업자번호 변경 ' + from + ' → ' + to + ' : 할 일 ' + rows.length + '건 옮김',
+    });
+    return { moved: rows.length };
+  });
+}
+
+// ── 여러 건 한 번에 추가 (자동 생성용) ── 트랜잭션 하나: 번호 연속 발급 + 같은 출처 건너뛰기 + 기록
+//   Cloudflare 무료 요금제는 요청당 외부 호출 50번 제한 → 한 건씩 만들면 금방 넘는다
+export async function createMany(ctx, items) {
+  const { db, actor, nowMs = Date.now() } = ctx;
+  const companies = ctx.companies || await loadCompanies(db);
+  const prepared = [];
+  const errors = [];
+  for (const it of items) {
+    try {
+      const f = cleanPatch(it.fields, { nowMs, creating: true });
+      applyCompany(f, it.fields, companies, { autoFromText: false });
+      prepared.push({ f, source: it.source, sourceRef: it.sourceRef, key: it.source + ':' + it.sourceRef });
+    } catch (e) { errors.push((it.fields && it.fields.text) + ': ' + e.message); }
+  }
+  if (!prepared.length) return { made: [], errors };
+  return db.transaction(async (tx) => {
+    const keys = [...new Set(prepared.map(p => p.key))];
+    const exist = new Set();
+    for (let i = 0; i < keys.length; i += 30) {          // Firestore IN 은 30개까지
+      (await tx.query('todos', [['dedupeKey', 'in', keys.slice(i, i + 30)]], {})).forEach(r => exist.add(r.data.dedupeKey));
+    }
+    let no = (await nextNo(tx)) - 1;
+    const made = [];
+    prepared.filter(p => !exist.has(p.key)).slice(0, 150).forEach((p, i) => {
+      exist.add(p.key);
+      no += 1;
+      const todo = newTodo(p.f, { no, source: p.source, sourceRef: p.sourceRef, actor, nowMs });
+      tx.create('todos/' + noLabel(no), todo);
+      tx.create(activityPath(nowMs + i), activityDoc('auto', todo, {}, actor, nowMs + i));
+      made.push(noLabel(no) + ' ' + todo.text);
+    });
+    if (made.length) tx.set(SEQ_PATH, { last: no, updatedAt: nowMs });
+    return { made, errors };
+  });
+}

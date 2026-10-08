@@ -258,3 +258,14 @@ test('기존 할 일 번호 붙이기 — 미리보기·적용·두 번 돌려�
   assert.equal(db.store.get('todos/old').status, 'ing');
   assert.equal(db.store.get('todos/cert1').status, 'done');
 });
+
+test('드라이브 스크립트 ingest — 채팅 출처·작성자 이름', async () => {
+  const db = seed();
+  const r = await handle(new Request('https://x/api/ingest', { method: 'POST', headers: { 'x-api-key': 'k-test', 'content-type': 'application/json' },
+    body: JSON.stringify({ text: '하이퍼다인 전화', source: 'chat', sourceRef: 'task:Z1', author: '김학미', due: '2026-10-20', memo: '채팅 할 일' }) }), ENV, { db, nowMs: NOW });
+  assert.equal(r.status, 200);
+  const t = db.store.get('todos/T-0001');
+  assert.equal(t.source, 'chat'); assert.equal(t.createdBy, '김학미'); assert.equal(t.dedupeKey, 'chat:task:Z1'); assert.equal(t.bizno, '111-11-11111');
+  const chk = await handle(new Request('https://x/api/ingest', { method: 'POST', headers: { 'x-api-key': 'k-test' }, body: JSON.stringify({ source: 'voice' }) }), ENV, { db, nowMs: NOW });
+  assert.equal(chk.status, 400); assert.match((await chk.json()).error, /sourceRef/);
+});
