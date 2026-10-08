@@ -222,3 +222,11 @@ test('HTTP — 로그인·작성자·CORS·스크립트 키', async () => {
   const pre = await call('OPTIONS', '/api/todos', { origin: 'https://evil.example' });
   assert.equal(pre.headers.get('access-control-allow-origin'), null);
 });
+
+test('연결 확인 주소 — 내용 없이 연결 여부만', async () => {
+  const okRes = await handle(new Request('https://x/health?check=firestore'), ENV, { db: seed({ 'app_state/config': { secret: 'x' } }), nowMs: NOW });
+  const j = await okRes.json();
+  assert.equal(okRes.status, 200); assert.equal(j.firestore, '연결됨'); assert.equal(JSON.stringify(j).includes('secret'), false);
+  const bad = await handle(new Request('https://x/health?check=firestore'), Object.assign({}, ENV, { GCP_SA_KEY: '' }), { nowMs: NOW });
+  assert.equal(bad.status, 503); assert.match((await bad.json()).firestore, /GCP_SA_KEY/);
+});

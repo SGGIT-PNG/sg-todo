@@ -47,7 +47,21 @@ export async function handle(request, env, deps = {}) {
   const path = url.pathname.replace(/\/+$/, '') || '/';
   const nowMs = deps.nowMs || Date.now();
   try {
-    if (path === '/health') return json({ ok: true, service: 'sg-todo', time: new Date(nowMs).toISOString() }, 200, cors);
+    if (path === '/health') {
+      const out = { ok: true, service: 'sg-todo', time: new Date(nowMs).toISOString() };
+      // ?check=firestore — 서비스 계정 키로 Firestore에 읽기 한 번(내용은 돌려주지 않고 연결 여부만)
+      if (url.searchParams.get('check') === 'firestore') {
+        try {
+          const db = deps.db || restDb({ projectId: env.FIREBASE_PROJECT, saKey: env.GCP_SA_KEY });
+          await db.get('app_state/config');
+          out.firestore = '연결됨';
+        } catch (e) {
+          out.ok = false;
+          out.firestore = '실패: ' + String(e && e.message || e).slice(0, 160);
+        }
+      }
+      return json(out, out.ok ? 200 : 503, cors);
+    }
     if (!path.startsWith('/api/')) return json({ ok: false, error: '없는 주소입니다' }, 404, cors);
 
     const actor = await authenticate(request, env, { fetchFn: deps.fetchFn, nowMs });

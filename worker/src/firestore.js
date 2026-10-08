@@ -59,7 +59,11 @@ function pemToDer(pem) {
 }
 let tokenCache = { token: '', exp: 0, email: '' };
 export async function accessToken(saKeyJson, fetchFn = fetch, nowMs = Date.now()) {
-  const sa = typeof saKeyJson === 'string' ? JSON.parse(saKeyJson) : saKeyJson;
+  let sa = saKeyJson;
+  if (typeof sa === 'string') {
+    if (!sa.trim()) throw new Error('서비스 계정 키(GCP_SA_KEY)가 설정되지 않았습니다');
+    try { sa = JSON.parse(sa); } catch { throw new Error('서비스 계정 키(GCP_SA_KEY)가 JSON 형식이 아닙니다 — 키 파일 내용 전체를 넣었는지 확인'); }
+  }
   if (!sa || !sa.client_email || !sa.private_key) throw new Error('서비스 계정 키(GCP_SA_KEY)가 설정되지 않았습니다');
   if (tokenCache.token && tokenCache.email === sa.client_email && nowMs < tokenCache.exp - 60000) return tokenCache.token;
   const iat = Math.floor(nowMs / 1000);
