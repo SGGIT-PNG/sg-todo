@@ -11,6 +11,8 @@
 //   POST   /api/todos/T-0123/complete     {note?}
 //   POST   /api/todos/T-0123/delete       {reason?}
 //   POST   /api/todos/T-0123/restore
+//   GET    /api/admin/migrate             기존 할 일 번호 붙이기 미리보기 (쓰지 않음)
+//   POST   /api/admin/migrate             적용 (번호 없는 것만, 여러 번 돌려도 안전)
 //   POST   /api/ingest                    (드라이브 스크립트·비서, X-Api-Key) {text, source, sourceRef, company?, due?, memo?}
 //
 // 쓰기 요청에는 X-SG-User: 정석진|김학미|공동 (URL 인코딩) 헤더가 필요하다 — 공용 계정이라 사람을 따로 받는다.
@@ -20,6 +22,7 @@ import { authenticate, requireAuthor, AuthError } from './auth.js';
 import { RuleError } from './core.js';
 import {
   createTodo, updateTodo, completeTodo, deleteTodo, restoreTodo, listTodos, getTodo, changesSince, NotFoundError,
+  migratePreview, migrateApply,
 } from './todos.js';
 
 const INGEST_SOURCES = ['voice', 'secretary', 'card', 'lead'];
@@ -76,6 +79,10 @@ export async function handle(request, env, deps = {}) {
       return json(Object.assign({ ok: true }, await listTodos(db, { view: q.get('view') || 'today', company: q.get('company') || '', category: q.get('category') || '', query: q.get('q') || '', limit: Number(q.get('limit')) || 50 }, nowMs)), 200, cors);
     }
     if (request.method === 'GET' && m && !m[2]) return json({ ok: true, todo: await getTodo(db, decodeURIComponent(m[1]), nowMs) }, 200, cors);
+    if (request.method === 'GET' && path === '/api/admin/migrate') {
+      if (actor.via !== 'web') throw new AuthError('웹 화면 로그인으로만 할 수 있습니다', 403);
+      return json(Object.assign({ ok: true }, await migratePreview(db)), 200, cors);
+    }
     if (request.method === 'GET' && path === '/api/changes') {
       const q = url.searchParams;
       return json(Object.assign({ ok: true }, await changesSince(db, { since: q.get('since'), company: q.get('company') || '' }, nowMs)), 200, cors);
@@ -93,6 +100,7 @@ export async function handle(request, env, deps = {}) {
       throw new AuthError('이 키로는 할 수 없는 요청입니다', 403);
     }
     requireAuthor(actor);
+    if (request.method === 'POST' && path === '/api/admin/migrate') return json(Object.assign({ ok: true }, await migrateApply(ctx)), 200, cors);
     if (request.method === 'POST' && path === '/api/todos') {
       const { source, sourceRef, ...fields } = body;
       const src = ['manual', 'lead', 'card'].includes(source) ? source : 'manual';

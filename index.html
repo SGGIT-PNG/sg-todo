@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1B2B4B">
+<title>SG 할 일</title>
+<style>
+:root{
+  --bg:#F4F6FA; --surface:#FFFFFF; --surface2:#F8FAFC; --border:#E2E8F0; --border2:#CBD5E1;
+  --text:#0F172A; --text2:#334155; --text3:#64748B; --text4:#94A3B8;
+  --navy:#1B2B4B; --primary:#2563EB; --danger:#DC2626; --ok:#059669;
+  --miss:#DC2626; --ing:#D97706; --waiting:#7C3AED; --todo:#2563EB; --later:#64748B;
+  --radius:10px; --shadow:0 1px 3px rgba(15,23,42,.08);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif;font-size:14px;line-height:1.45}
+button{font:inherit;cursor:pointer}
+input,select,textarea{font:inherit;color:inherit}
+.hidden{display:none!important}
+
+/* 로그인 */
+#gate{position:fixed;inset:0;z-index:100;background:var(--navy);display:flex;align-items:center;justify-content:center;padding:16px}
+#gate .box{background:#fff;border-radius:14px;padding:28px 24px;width:100%;max-width:360px;text-align:center}
+#gate h1{margin:0;font-size:20px;color:var(--navy)}
+#gate p{margin:8px 0 18px;color:var(--text2);font-size:13px}
+.btn{border:1px solid var(--border2);background:#fff;border-radius:8px;padding:8px 14px;font-size:13px;color:var(--text)}
+.btn:hover{background:var(--surface2)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+.btn.danger{color:var(--danger);border-color:#FECACA}
+.btn.sm{padding:3px 9px;font-size:12px;border-radius:6px}
+.btn.block{display:block;width:100%;padding:11px}
+
+/* 머리 */
+header{position:sticky;top:0;z-index:10;background:var(--navy);color:#fff;padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+header h1{margin:0;font-size:16px;font-weight:700;white-space:nowrap}
+.tabs{display:flex;gap:4px;flex-wrap:wrap}
+.tabs button{background:transparent;border:0;color:rgba(255,255,255,.7);padding:6px 10px;border-radius:7px;font-size:13px}
+.tabs button.on{background:rgba(255,255,255,.16);color:#fff;font-weight:600}
+.me{margin-left:auto;display:flex;gap:8px;align-items:center;font-size:12px;color:rgba(255,255,255,.75)}
+.me button{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:7px;padding:4px 10px;font-size:12px}
+
+main{max-width:1180px;margin:0 auto;padding:14px 16px 80px;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px}
+@media (max-width:900px){main{grid-template-columns:minmax(0,1fr)}}
+
+/* 빠른 입력 */
+.quick{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px;box-shadow:var(--shadow);margin-bottom:12px}
+.quick .qrow{display:flex;gap:8px}
+.quick input{flex:1;min-width:0;border:1px solid var(--border2);border-radius:8px;padding:9px 11px;font-size:14px}
+.quick .hint{font-size:12px;color:var(--text3);margin-top:6px;min-height:16px}
+
+/* 요약 숫자 */
+.counts{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.counts div{flex:1;min-width:92px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:8px 10px}
+.counts b{display:block;font-size:20px}
+.counts span{font-size:12px;color:var(--text3)}
+
+/* 목록 */
+.sec{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;box-shadow:var(--shadow);overflow:hidden}
+.sec>h2{margin:0;font-size:13px;padding:9px 12px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border);background:var(--surface2)}
+.sec>h2 small{color:var(--text3);font-weight:400}
+.sec>h2 .cnt{margin-left:auto;font-size:12px;color:var(--text3)}
+.sec .empty{padding:14px 12px;color:var(--text4);font-size:13px}
+.sec details>summary{cursor:pointer;padding:9px 12px;font-size:13px;color:var(--text3)}
+.row{display:flex;align-items:flex-start;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border)}
+.row:last-child{border-bottom:0}
+.row.miss{border-left:3px solid var(--miss)}
+.row .chk{width:22px;height:22px;flex-shrink:0;margin-top:1px;border:2px solid var(--border2);border-radius:6px;background:#fff;padding:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px}
+.row .chk:hover{border-color:var(--ok)}
+.row.done .chk{background:var(--ok);border-color:var(--ok)}
+.row .body{flex:1;min-width:0;cursor:pointer}
+.row .t{font-size:14px;word-break:break-word}
+.row.done .t{color:var(--text4);text-decoration:line-through}
+.row .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:3px;font-size:12px;color:var(--text3);align-items:center}
+.no{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:var(--text4)}
+.chip{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;background:var(--surface2);border:1px solid var(--border);color:var(--text2)}
+.chip.co{background:#EEF2FF;border-color:#C7D2FE;color:#3730A3}
+.chip.hi{background:#FEE2E2;border-color:#FECACA;color:#B91C1C}
+.chip.wt{background:#F5F3FF;border-color:#DDD6FE;color:#6D28D9}
+.reason{font-weight:600}
+.reason.miss{color:var(--miss)}
+.acts{display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
+@media (max-width:600px){.acts .btn.sm{padding:5px 9px}.row{flex-wrap:wrap}.acts{width:100%;justify-content:flex-start;padding-left:32px}}
+
+/* 주간 */
+.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.week .day{background:var(--surface);border:1px solid var(--border);border-radius:8px;min-height:120px;padding:6px}
+.week .day.today{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary) inset}
+.week .day h3{margin:0 0 6px;font-size:12px;color:var(--text3);font-weight:600}
+.week .it{font-size:12px;padding:4px 6px;border-radius:6px;background:var(--surface2);margin-bottom:4px;cursor:pointer;border-left:3px solid var(--todo)}
+.week .it.miss{border-left-color:var(--miss)}.week .it.ing{border-left-color:var(--ing)}.week .it.waiting{border-left-color:var(--waiting)}
+@media (max-width:760px){.week{grid-template-columns:1fr}.week .day{min-height:0}}
+.weeknav{display:flex;gap:6px;align-items:center;margin-bottom:8px}
+
+/* 옆: 방금 바뀐 것 */
+aside .sec{position:sticky;top:64px}
+.act{padding:7px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text2)}
+.act time{display:block;color:var(--text4);font-size:11px}
+
+/* 창 */
+.ov{position:fixed;inset:0;z-index:50;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:6vh 12px;overflow:auto}
+.modal{background:#fff;border-radius:14px;width:100%;max-width:520px;padding:18px;box-shadow:0 10px 40px rgba(0,0,0,.25)}
+.modal h3{margin:0 0 12px;font-size:16px;display:flex;gap:8px;align-items:center}
+.fg{margin-bottom:10px}
+.fg label{display:block;font-size:12px;color:var(--text3);margin-bottom:3px}
+.fg input,.fg select,.fg textarea{width:100%;border:1px solid var(--border2);border-radius:8px;padding:8px 10px;background:#fff}
+.fg textarea{min-height:70px;resize:vertical}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.modal .foot{display:flex;gap:8px;margin-top:14px;align-items:center}
+.modal .foot .sp{flex:1}
+.info{font-size:11px;color:var(--text4);margin-top:6px}
+.hist{max-height:150px;overflow:auto;border-top:1px solid var(--border);margin-top:10px;padding-top:6px}
+
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:200;background:#0F172A;color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;max-width:92vw;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+#toast.err{background:#991B1B}
+table.mig{width:100%;border-collapse:collapse;font-size:12px}
+table.mig td,table.mig th{border-bottom:1px solid var(--border);padding:5px 6px;text-align:left}
+</style>
+</head>
+<body>
+
+<div id="gate"><div class="box">
+  <h1>SG 할 일</h1>
+  <p id="gate-msg">로그인 상태 확인 중…</p>
+  <button class="btn block primary hidden" id="gate-in" onclick="signIn()">Google 계정으로 로그인</button>
+  <button class="btn block hidden" id="gate-out" style="margin-top:8px" onclick="signOutNow()">다른 계정으로 로그인</button>
+</div></div>
+
+<header>
+  <h1>✅ SG 할 일</h1>
+  <nav class="tabs" id="tabs"></nav>
+  <div class="me">
+    <span>나:</span><button onclick="pickMe()" id="me-btn">선택</button>
+    <button onclick="signOutNow()">로그아웃</button>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="quick">
+      <div class="qrow">
+        <input id="quick" placeholder="할 일 입력 — 예: 하이퍼다인 벤처 서류 독촉 10/20" autocomplete="off" oninput="quickHint()" onkeydown="if(event.key==='Enter'&&!event.isComposing)quickAdd()">
+        <button class="btn primary" onclick="quickAdd()">추가</button>
+        <button class="btn" onclick="openEdit(null)" title="자세히 추가">＋</button>
+      </div>
+      <div class="hint" id="quick-hint"></div>
+    </div>
+    <div id="view"></div>
+  </section>
+  <aside>
+    <div class="sec"><h2>🔔 방금 바뀐 것 <span class="cnt" id="act-n"></span></h2><div id="acts"><div class="empty">불러오는 중…</div></div></div>
+  </aside>
+</main>
+
+<div id="ov" class="ov hidden" onclick="if(event.target===this)closeModal()"><div class="modal" id="modal"></div></div>
+<div id="toast" class="hidden"></div>
+
+<script type="module">
+// ── SG 할 일 웹 화면 ──
+// 읽기 = Firestore 실시간 구독(로그인한 sgceo만 — 보안 규칙), 쓰기 = 쓰기 창구(Cloudflare Worker) API만.
+// 칸 계산·날짜·기업 찾기는 쓰기 창구와 같은 파일(worker/src/core.js)을 그대로 쓴다.
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-auth.js";
+import { getFirestore, collection, doc, onSnapshot, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
+import * as core from './worker/src/core.js';
+
+const API = 'https://sg-todo.sgsolution.workers.dev';
+const ALLOWED = ['sgceo@sgsolutionss.com'];   // 쓰기 창구 ALLOWED_EMAILS · Firestore 규칙과 같게
+const app = initializeApp({
+  apiKey: "AIzaSyD7EoihxcX9zIbr1n4NiXK_qlWpv8p5gRk",
+  authDomain: "sg-crm-f9adc.firebaseapp.com",
+  projectId: "sg-crm-f9adc",
+  storageBucket: "sg-crm-f9adc.firebasestorage.app",
+  messagingSenderId: "894793510271",
+  appId: "1:894793510271:web:be9759e2d6df444323be4a",
+});
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const CATS = { policy:'💰 정책자금', support:'🏆 지원사업', ven:'🚀 벤처·이노비즈', lab:'🔬 연구소', pat:'💡 특허·지재', iso:'🏅 ISO', fund:'🏦 자금조달', confirm:'📜 확인서', fin:'📊 재무', etc:'📋 기타·행정' };
+const SRC = { manual:'손 입력', chat:'채팅', voice:'음성', cert:'인증 갱신', iso:'ISO', annual:'연간신고', lead:'잠재고객', card:'업체카드', secretary:'비서', repeat:'반복' };
+const VIEWS = [['today','오늘'],['company','기업별'],['week','주간'],['done','완료·휴지통'],['admin','관리']];
+const LS = { me:'sgtodo_me', view:'sgtodo_view' };
+const ls = { get:(k,d)=>{try{return localStorage.getItem(k)??d;}catch{return d;}}, set:(k,v)=>{try{localStorage.setItem(k,v);}catch{}} };
+
+let todos = [], companies = [], rules = { ...core.RULES_DEFAULT }, acts = [];
+let me = ls.get(LS.me, ''), view = ls.get(LS.view, 'today'), weekOffset = 0, started = false, unsub = [];
+let hashOpened = false, migPreview = null;
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const now = () => Date.now();
+function toast(msg, err) {
+  const el = document.getElementById('toast'); el.innerHTML = msg; el.className = err ? 'err' : '';
+  clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.add('hidden'), err ? 6000 : 2500);
+}
+
+// ── 로그인 ──
+function gate(msg, showIn, showOut) {
+  const g = document.getElementById('gate');
+  if (msg === null) { g.classList.add('hidden'); return; }
+  g.classList.remove('hidden');
+  document.getElementById('gate-msg').innerHTML = msg;
+  document.getElementById('gate-in').classList.toggle('hidden', !showIn);
+  document.getElementById('gate-out').classList.toggle('hidden', !showOut);
+}
+async function signIn() {
+  const p = new GoogleAuthProvider(); p.setCustomParameters({ prompt: 'select_account' });
+  try { await signInWithPopup(auth, p); }
+  catch (e) {
+    const c = e && e.code || '';
+    if (c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request') return;
+    gate(c === 'auth/popup-blocked' ? '브라우저가 로그인 창(팝업)을 막았습니다. 팝업을 허용하고 다시 눌러 주세요.'
+      : c === 'auth/unauthorized-domain' ? '이 주소(' + esc(location.hostname) + ')가 Firebase 승인된 도메인에 없습니다.'
+      : '로그인 실패: ' + esc(c || e.message), true, false);
+  }
+}
+async function signOutNow() { try { await signOut(auth); } catch {} }
+onAuthStateChanged(auth, (u) => {
+  if (!u) { if (started) { location.reload(); return; } gate('SG솔루션 계정으로 로그인해 주세요.', true, false); return; }
+  if (!(u.emailVerified && ALLOWED.includes(String(u.email || '').toLowerCase()))) {
+    gate('<b>' + esc(u.email) + '</b><br>이 계정은 사용할 수 없습니다.', false, true); return;
+  }
+  gate(null);
+  if (started) return;
+  started = true;
+  start();
+});
+
+// ── 실시간 읽기 ──
+function start() {
+  renderTabs(); renderMe();
+  unsub.push(onSnapshot(collection(db, 'todos'), s => { todos = s.docs.map(d => ({ _id: d.id, ...d.data() })); render(); openFromHash(); },
+    e => toast('할 일을 읽지 못했습니다: ' + esc(e.message), true)));
+  unsub.push(onSnapshot(collection(db, 'companies'), s => {
+    companies = s.docs.map(d => ({ id: d.id, name: d.data().name || '', active: d.data().active || '' }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    quickHint();
+  }));
+  unsub.push(onSnapshot(doc(db, 'app_state', 'config'), s => { rules = { ...core.RULES_DEFAULT, ...((s.exists() && s.data().todoRules) || {}) }; render(); }));
+  unsub.push(onSnapshot(query(collection(db, 'activity'), orderBy('at', 'desc'), limit(20)), s => { acts = s.docs.map(d => d.data()); renderActs(); },
+    () => { document.getElementById('acts').innerHTML = '<div class="empty">아직 기록이 없습니다.</div>'; }));
+  setInterval(render, 60000);   // 「며칠째」·D-n 계산을 맞추려고 1분마다 다시 그림
+  if (!me) setTimeout(pickMe, 300);
+}
+
+// ── 쓰기 = 쓰기 창구 API ──
+async function api(method, path, body) {
+  if (method !== 'GET' && !me) { pickMe(); throw new Error('먼저 「나」를 골라 주세요'); }
+  const token = await auth.currentUser.getIdToken();
+  const r = await fetch(API + path, {
+    method, body: body ? JSON.stringify(body) : undefined,
+    headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json', 'x-sg-user': encodeURIComponent(me) },
+  });
+  const j = await r.json().catch(() => ({ ok: false, error: '응답을 읽지 못했습니다 (HTTP ' + r.status + ')' }));
+  if (!r.ok || j.ok === false) {
+    const e = new Error(j.error || ('HTTP ' + r.status)); e.candidates = j.candidates; throw e;
+  }
+  return j;
+}
+function fail(e) {
+  let msg = esc(e.message);
+  if (e.candidates) msg += '<br>' + e.candidates.map(c => esc(c.name) + ' · ' + esc(c.bizno)).join('<br>');
+  toast(msg, true);
+}
+
+// ── 나는 누구 (공용 계정이라 기기마다 고른다) ──
+function renderMe() { document.getElementById('me-btn').textContent = me || '선택'; }
+function pickMe() {
+  openModal('<h3>이 기기에서 쓰는 사람</h3>'
+    + '<p style="font-size:13px;color:var(--text2);margin:0 0 12px">두 분이 같은 계정을 쓰므로, 누가 추가·완료했는지 기록하려고 고릅니다. 기기마다 한 번만 고르면 됩니다.</p>'
+    + core.AUTHORS.map(n => '<button class="btn block' + (n === me ? ' primary' : '') + '" style="margin-bottom:6px" onclick="setMe(\'' + n + '\')">' + n + '</button>').join(''));
+}
+function setMe(n) { me = n; ls.set(LS.me, n); renderMe(); closeModal(); toast('이 기기 사용자: ' + esc(n)); }
+
+// ── 공통 ──
+const live = () => todos.filter(t => !t.deletedAt);
+const label = t => t.no ? core.noLabel(t.no) : '';
+function textOf(t) {   // 글 앞의 [기업명]은 기업 칩과 겹치므로 뺀다
+  const x = String(t.text || '');
+  return t.companyName && /^\[[^\]]+\]\s*/.test(x) ? x.replace(/^\[[^\]]+\]\s*/, '') : x;
+}
+const shortCo = n => String(n || '').replace(/주식회사\s*|\(주\)\s*|㈜\s*/g, '').trim();
+function withBucket(list) { const n = now(); return list.map(t => Object.assign({}, t, { _b: core.bucket(t, rules, n) })); }
+const byDue = (a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || ((b.priority === 'high') - (a.priority === 'high')) || ((a.no || 0) - (b.no || 0));
+
+function rowHtml(t) {
+  const b = t._b || core.bucket(t, rules, now());
+  const id = esc(t._id), numbered = !!t.no;
+  const done = t.status === 'done' || t.status === 'cancel';
+  const chips = [];
+  if (t.companyName) chips.push('<span class="chip co">🏢 ' + esc(shortCo(t.companyName)) + '</span>');
+  if (t.kind && core.KIND_LABEL[t.kind]) chips.push('<span class="chip">' + core.KIND_LABEL[t.kind] + '</span>');
+  if (t.category && CATS[t.category]) chips.push('<span class="chip">' + CATS[t.category] + '</span>');
+  if (t.priority === 'high') chips.push('<span class="chip hi">중요</span>');
+  if (t.status === 'waiting') chips.push('<span class="chip wt">기다리는 중' + (t.waitingFor ? ' · ' + esc(t.waitingFor) : '') + '</span>');
+  if (t.repeat && t.repeat.every) chips.push('<span class="chip">🔁 ' + ({ week:'매주', month:'매월', year:'매년' })[t.repeat.every] + '</span>');
+  if (t.status === 'cancel') chips.push('<span class="chip">취소</span>');
+  const reason = b.reason ? '<span class="reason ' + (b.col === 'miss' ? 'miss' : '') + '">' + esc(b.reason) + '</span>'
+    : (t.dueDate && !done ? '<span>📅 ' + esc(t.dueDate) + '</span>' : '');
+  let acts = '';
+  if (!numbered) acts = '<span class="chip" title="관리 → 번호 붙이기 후 쓸 수 있습니다">번호 없음</span>';
+  else if (t.deletedAt) acts = '<button class="btn sm" onclick="act(\'' + id + '\',\'restore\')">되살리기</button>';
+  else if (done) acts = '<button class="btn sm" onclick="act(\'' + id + '\',\'reopen\')">다시 열기</button>';
+  else {
+    if (t.status === 'wait') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'ing\')">시작</button>';
+    if (t.status === 'waiting') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'ing\')">다시 진행</button>';
+    else acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'waiting\')">기다림</button>';
+    acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'postpone\')" title="마감 미루기">미루기</button>';
+  }
+  return '<div class="row' + (b.col === 'miss' ? ' miss' : '') + (done ? ' done' : '') + '">'
+    + '<button class="chk" ' + (numbered && !t.deletedAt ? 'onclick="act(\'' + id + '\',\'' + (done ? 'reopen' : 'done') + '\')"' : 'disabled') + ' aria-label="완료">' + (done ? '✓' : '') + '</button>'
+    + '<div class="body" onclick="openEdit(\'' + id + '\')">'
+      + '<div class="t">' + esc(textOf(t)) + '</div>'
+      + '<div class="meta">' + (numbered ? '<span class="no">' + label(t) + '</span>' : '') + chips.join('') + reason
+      + (t.createdBy ? '<span style="color:var(--text4)">· ' + esc(t.createdBy) + '</span>' : '') + '</div>'
+    + '</div><div class="acts">' + acts + '</div></div>';
+}
+function section(title, sub, list, open = true) {
+  const inner = list.length ? list.map(rowHtml).join('') : '<div class="empty">없습니다</div>';
+  if (!open) return '<div class="sec"><details><summary>' + title + ' (' + list.length + ')' + (sub ? ' — ' + sub : '') + '</summary>' + inner + '</details></div>';
+  return '<div class="sec"><h2>' + title + (sub ? ' <small>' + sub + '</small>' : '') + '<span class="cnt">' + list.length + '</span></h2>' + inner + '</div>';
+}
+
+// ── 보기 ──
+function renderTabs() {
+  document.getElementById('tabs').innerHTML = VIEWS.map(([k, n]) => '<button class="' + (view === k ? 'on' : '') + '" onclick="setView(\'' + k + '\')">' + n + '</button>').join('');
+}
+function setView(v) { view = v; ls.set(LS.view, v); renderTabs(); render(); }
+function render() {
+  if (!started) return;
+  const el = document.getElementById('view');
+  const all = withBucket(live());
+  const g = { miss: [], ing: [], waiting: [], todo: [], later: [], done: [] };
+  all.forEach(t => (g[t._b.col] || g.done).push(t));
+  Object.values(g).forEach(a => a.sort(byDue));
+  const counts = '<div class="counts">'
+    + '<div><b style="color:var(--miss)">' + g.miss.length + '</b><span>놓치고 있는 일</span></div>'
+    + '<div><b style="color:var(--ing)">' + g.ing.length + '</b><span>하는 중</span></div>'
+    + '<div><b style="color:var(--waiting)">' + g.waiting.length + '</b><span>기다리는 중</span></div>'
+    + '<div><b style="color:var(--todo)">' + g.todo.length + '</b><span>해야 할 일</span></div></div>';
+  const unnumbered = todos.filter(t => !t.no).length;
+  const warn = unnumbered ? '<div class="sec" style="border-color:#FDE68A;background:#FFFBEB"><div class="empty" style="color:#92400E">번호가 없는 옛 할 일이 ' + unnumbered + '건 있습니다. 이 할 일들은 <b>관리 → 번호 붙이기</b> 뒤에 완료·수정할 수 있습니다.</div></div>' : '';
+
+  if (view === 'today') {
+    const recent = g.done.filter(t => (t.doneAt || t.updatedAt || 0) > now() - 7 * 86400000).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
+    el.innerHTML = counts + warn
+      + section('🔴 놓치고 있는 일', '오늘 결정 — 하거나, 날짜를 다시 잡거나', g.miss)
+      + section('🟡 하는 중', '', g.ing)
+      + section('🟣 기다리는 중', '상대 회신·서류 등', g.waiting)
+      + section('🔵 해야 할 일', rules.horizonDays + '일 안 · 날짜 없음', g.todo)
+      + section('⚪ 앞으로 할 일', rules.horizonDays + '일 뒤', g.later, false)
+      + section('✅ 최근 7일 완료', '', recent, false);
+  } else if (view === 'company') {
+    const open = all.filter(t => !['done'].includes(t._b.col));
+    const groups = {};
+    open.forEach(t => { const k = t.bizno || '_none'; (groups[k] = groups[k] || []).push(t); });
+    const keys = Object.keys(groups).sort((a, b) => {
+      if (a === '_none') return 1; if (b === '_none') return -1;
+      const m = k => groups[k].filter(t => t._b.col === 'miss').length;
+      return m(b) - m(a) || groups[b].length - groups[a].length;
+    });
+    el.innerHTML = counts + warn + (keys.length ? keys.map(k => {
+      const list = groups[k].sort((a, b) => ({ miss: 0, ing: 1, waiting: 2, todo: 3, later: 4 }[a._b.col] - { miss: 0, ing: 1, waiting: 2, todo: 3, later: 4 }[b._b.col]) || byDue(a, b));
+      const miss = list.filter(t => t._b.col === 'miss').length;
+      return section(k === '_none' ? '기업 연결 없음' : '🏢 ' + esc(shortCo(list[0].companyName)), miss ? '<span style="color:var(--miss)">놓친 일 ' + miss + '</span>' : '', list);
+    }).join('') : '<div class="sec"><div class="empty">열린 할 일이 없습니다</div></div>');
+  } else if (view === 'week') {
+    const today = core.kstToday();
+    const d0 = new Date(today + 'T00:00:00Z'); const dow = (d0.getUTCDay() + 6) % 7;   // 월=0
+    const mon = core.addDays(today, -dow + weekOffset * 7);
+    const days = [...Array(7)].map((_, i) => core.addDays(mon, i));
+    const open = all.filter(t => t._b.col !== 'done');
+    const over = open.filter(t => t.dueDate && t.dueDate < days[0]).sort(byDue);
+    const noDate = open.filter(t => !t.dueDate).sort(byDue);
+    const item = t => '<div class="it ' + t._b.col + '" onclick="openEdit(\'' + esc(t._id) + '\')">' + (t.companyName ? '<b>' + esc(shortCo(t.companyName)) + '</b> ' : '') + esc(textOf(t)) + '</div>';
+    el.innerHTML = '<div class="weeknav"><button class="btn sm" onclick="weekMove(-1)">◀</button><button class="btn sm" onclick="weekMove(0)">이번 주</button><button class="btn sm" onclick="weekMove(1)">▶</button>'
+      + '<b style="margin-left:6px">' + days[0].slice(5).replace('-', '/') + ' ~ ' + days[6].slice(5).replace('-', '/') + '</b></div>'
+      + (over.length ? section('🔴 지난 마감', '', over) : '')
+      + '<div class="week">' + days.map((d, i) => '<div class="day' + (d === today ? ' today' : '') + '"><h3>' + '월화수목금토일'[i] + ' ' + d.slice(5).replace('-', '/') + '</h3>'
+        + open.filter(t => t.dueDate === d).sort(byDue).map(item).join('') + '</div>').join('') + '</div>'
+      + '<div style="height:12px"></div>' + section('📭 날짜 없는 할 일', '놓치기 쉬움 — 날짜를 잡아 주세요', noDate);
+  } else if (view === 'done') {
+    const done = withBucket(todos.filter(t => !t.deletedAt && (t.status === 'done' || t.status === 'cancel')))
+      .sort((a, b) => (b.doneAt || b.updatedAt || 0) - (a.doneAt || a.updatedAt || 0)).slice(0, 100);
+    const trash = withBucket(todos.filter(t => t.deletedAt)).sort((a, b) => b.deletedAt - a.deletedAt);
+    el.innerHTML = section('✅ 완료·취소', '최근 100건', done) + section('🗑️ 휴지통', core.TRASH_DAYS + '일 뒤 완전 삭제', trash);
+  } else if (view === 'admin') {
+    el.innerHTML = renderAdmin();
+  }
+}
+function weekMove(n) { weekOffset = n === 0 ? 0 : weekOffset + n; render(); }
+
+// ── 버튼 동작 ──
+async function act(id, what) {
+  const t = todos.find(x => x._id === id); if (!t || !t.no) return;
+  const L = core.noLabel(t.no);
+  try {
+    if (what === 'done') { await api('POST', '/api/todos/' + L + '/complete', {}); toast(L + ' 완료 ✓'); }
+    else if (what === 'reopen') { await api('PATCH', '/api/todos/' + L, { status: 'wait' }); toast(L + ' 다시 열림'); }
+    else if (what === 'ing') { await api('PATCH', '/api/todos/' + L, { status: 'ing' }); }
+    else if (what === 'restore') { await api('POST', '/api/todos/' + L + '/restore', {}); toast(L + ' 되살림'); }
+    else if (what === 'waiting') {
+      const w = prompt('무엇을 기다리나요? (예: 서류 회신, 심사원 일정)', t.waitingFor || ''); if (w === null) return;
+      const d = prompt('언제 다시 확인할까요? (예: 10/20, 내일, +7 · 비워 두면 날짜 없음)', t.dueDate || '+7'); if (d === null) return;
+      await api('PATCH', '/api/todos/' + L, { status: 'waiting', waitingFor: w, due: d });
+    } else if (what === 'postpone') {
+      const base = t.dueDate && t.dueDate > core.kstToday() ? t.dueDate : core.kstToday();
+      const d = prompt('새 마감일 (예: 10/20, 내일, +7)', core.addDays(base, 7)); if (d === null) return;
+      await api('PATCH', '/api/todos/' + L, { due: d }); toast(L + ' 미룸');
+    }
+  } catch (e) { fail(e); }
+}
+
+// ── 빠른 입력: 글 속 날짜·기업 찾기 (날짜는 떼어 내고, 기업은 쓰기 창구가 글에서 찾아 연결) ──
+const DATE_RE = /(20\d{2}[-.\/]\s*\d{1,2}[-.\/]\s*\d{1,2}|\d{1,2}\s*월\s*\d{1,2}\s*일|\d{1,2}\/\d{1,2}|오늘|내일|모레|글피)(\s*까지)?/;
+function parseQuick(raw) {
+  let text = String(raw || '').trim(), due = '';
+  const m = text.match(DATE_RE);
+  if (m) { try { due = core.parseDue(m[1].replace(/\s+/g, '')); text = (text.slice(0, m.index) + ' ' + text.slice(m.index + m[0].length)).replace(/\s{2,}/g, ' ').trim(); } catch { due = ''; } }
+  const co = core.findCompanyInText(text, companies);
+  return { text: text || String(raw).trim(), due, co };
+}
+function quickHint() {
+  const v = document.getElementById('quick').value, el = document.getElementById('quick-hint');
+  if (!v.trim()) { el.textContent = 'Enter로 저장. 기업명·날짜(10/20 · 내일 · 10월 20일)가 글에 있으면 알아서 연결합니다.'; return; }
+  const p = parseQuick(v);
+  el.innerHTML = '→ ' + (p.co ? '🏢 <b>' + esc(p.co.name) + '</b>' : '기업 없음') + ' · ' + (p.due ? '📅 <b>' + p.due + '</b>' : '마감 없음');
+}
+async function quickAdd() {
+  const inp = document.getElementById('quick'); const raw = inp.value.trim(); if (!raw) return;
+  const p = parseQuick(raw);
+  try {
+    const r = await api('POST', '/api/todos', { text: p.text, due: p.due });
+    inp.value = ''; quickHint(); toast(esc(r.label) + ' 추가됨'); inp.focus();
+  } catch (e) { fail(e); }
+}
+
+// ── 추가·수정 창 ──
+function openModal(html) { document.getElementById('modal').innerHTML = html; document.getElementById('ov').classList.remove('hidden'); }
+function closeModal() { document.getElementById('ov').classList.add('hidden'); if (/^#T-/i.test(location.hash)) history.replaceState(null, '', location.pathname); }
+function coValue(t) { return t && t.bizno ? (t.companyName || '') + ' · ' + t.bizno : ''; }
+function openEdit(id) {
+  const t = id ? todos.find(x => x._id === id) : null;
+  if (t && !t.no) { toast('번호가 없는 옛 할 일입니다. 관리 → 번호 붙이기 뒤에 고칠 수 있습니다.', true); return; }
+  const v = (k, d = '') => esc(t ? (t[k] ?? d) : d);
+  const opt = (list, cur) => list.map(([k, n]) => '<option value="' + k + '"' + (k === (cur || '') ? ' selected' : '') + '>' + n + '</option>').join('');
+  const rep = t && t.repeat && t.repeat.every || '';
+  openModal('<h3>' + (t ? '✏️ <span class="no">' + label(t) + '</span> 할 일' : '＋ 할 일 추가') + '</h3>'
+    + '<div class="fg"><label>할 일</label><textarea id="f-text" style="min-height:52px">' + v('text') + '</textarea></div>'
+    + '<div class="fg"><label>기업 (목록에서 고르거나 이름을 적으세요 · 비워도 됨)</label><input id="f-co" list="co-list" value="' + esc(coValue(t)) + '" autocomplete="off">'
+    + '<datalist id="co-list">' + companies.filter(c => c.active !== 'N').map(c => '<option value="' + esc(c.name + ' · ' + c.id) + '">').join('') + '</datalist></div>'
+    + '<div class="grid2">'
+      + '<div class="fg"><label>상태</label><select id="f-status" onchange="document.getElementById(\'f-wf\').closest(\'.fg\').classList.toggle(\'hidden\',this.value!==\'waiting\')">'
+        + opt(core.STATUSES.filter(s => t || !['done', 'cancel'].includes(s)).map(s => [s, core.STATUS_LABEL[s]]), t ? t.status : 'wait') + '</select></div>'
+      + '<div class="fg"><label>마감 / 다시 확인할 날</label><input type="date" id="f-due" value="' + v('dueDate') + '"></div>'
+    + '</div>'
+    + '<div class="fg' + (t && t.status === 'waiting' ? '' : ' hidden') + '"><label>무엇을 기다리나</label><input id="f-wf" value="' + v('waitingFor') + '" placeholder="예: 서류 회신"></div>'
+    + '<div class="grid2">'
+      + '<div class="fg"><label>종류</label><select id="f-kind"><option value="">—</option>' + opt(core.KINDS.map(k => [k, core.KIND_LABEL[k]]), t && t.kind) + '</select></div>'
+      + '<div class="fg"><label>업무 분야</label><select id="f-cat"><option value="">—</option>' + opt(Object.entries(CATS), t && t.category) + '</select></div>'
+    + '</div>'
+    + '<div class="grid2">'
+      + '<div class="fg"><label>반복</label><select id="f-rep">' + opt([['', '반복 안 함'], ['week', '매주'], ['month', '매월'], ['year', '매년']], rep) + '</select></div>'
+      + '<div class="fg"><label>&nbsp;</label><label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--text)"><input type="checkbox" id="f-hi" style="width:auto"' + (t && t.priority === 'high' ? ' checked' : '') + '> 중요</label></div>'
+    + '</div>'
+    + '<div class="fg"><label>메모</label><textarea id="f-memo">' + v('memo') + '</textarea></div>'
+    + (t ? '<div class="info">생긴 곳: ' + esc(SRC[t.source] || t.source || '—') + ' · 적은 사람 ' + esc(t.createdBy || '—')
+        + (t.createdAt ? ' · ' + new Date(t.createdAt).toLocaleDateString('ko-KR') : '') + (t.updatedBy ? ' · 마지막 수정 ' + esc(t.updatedBy) : '') + '</div>'
+        + '<div class="hist" id="f-hist"></div>' : '')
+    + '<div class="foot">'
+      + (t ? (t.deletedAt ? '<button class="btn" onclick="act(\'' + esc(t._id) + '\',\'restore\');closeModal()">되살리기</button>' : '<button class="btn danger" onclick="delTodo(\'' + esc(t._id) + '\')">삭제</button>') : '')
+      + '<span class="sp"></span><button class="btn" onclick="closeModal()">취소</button>'
+      + '<button class="btn primary" onclick="saveEdit(' + (t ? '\'' + esc(t._id) + '\'' : 'null') + ')">' + (t ? '저장' : '추가') + '</button>'
+    + '</div>');
+  if (t) {
+    location.hash = label(t);
+    const hist = acts.filter(a => a.ref === label(t));
+    document.getElementById('f-hist').innerHTML = hist.length ? hist.map(a => '<div class="act"><time>' + new Date(a.at).toLocaleString('ko-KR') + '</time>' + esc(a.summary) + '</div>').join('')
+      : '<div class="info">최근 변동 기록은 오른쪽 「방금 바뀐 것」에 20건까지 보입니다.</div>';
+  }
+  setTimeout(() => document.getElementById('f-text').focus(), 50);
+}
+function formValues() {
+  const val = id => document.getElementById(id).value;
+  const coRaw = val('f-co').trim(); const m = coRaw.match(/·\s*(\S+)\s*$/);
+  const rep = val('f-rep');
+  return {
+    text: val('f-text').trim(), company: m ? m[1] : coRaw, status: val('f-status'), dueDate: val('f-due'),
+    waitingFor: val('f-wf').trim(), kind: val('f-kind'), category: val('f-cat'), priority: document.getElementById('f-hi').checked ? 'high' : '',
+    memo: val('f-memo').trim(), repeat: rep ? { every: rep, n: 1 } : null,
+  };
+}
+async function saveEdit(id) {
+  const f = formValues();
+  if (!f.text) { toast('할 일 내용을 적어 주세요', true); return; }
+  try {
+    if (!id) {
+      const body = { ...f }; if (!body.company) delete body.company; if (!body.repeat) delete body.repeat;
+      const r = await api('POST', '/api/todos', body); toast(esc(r.label) + ' 추가됨');
+    } else {
+      const t = todos.find(x => x._id === id);
+      const patch = {};
+      for (const k of ['text', 'status', 'dueDate', 'waitingFor', 'kind', 'category', 'priority', 'memo']) if ((t[k] || '') !== (f[k] || '')) patch[k] = f[k];
+      if (document.getElementById('f-co').value.trim() !== coValue(t)) patch.company = f.company;   // 기업 칸을 손댔을 때만
+      if (JSON.stringify((t.repeat && t.repeat.every) || '') !== JSON.stringify((f.repeat && f.repeat.every) || '')) patch.repeat = f.repeat;
+      if (!Object.keys(patch).length) { closeModal(); return; }
+      const r = await api('PATCH', '/api/todos/' + core.noLabel(t.no), patch);
+      toast(esc(r.label) + ' 저장됨' + (r.next ? ' · 다음 회차 ' + esc(r.next.label) + ' (' + r.next.dueDate + ')' : ''));
+    }
+    closeModal();
+  } catch (e) { fail(e); }
+}
+async function delTodo(id) {
+  const t = todos.find(x => x._id === id); if (!t) return;
+  if (!confirm(core.noLabel(t.no) + ' 「' + textOf(t) + '」을(를) 휴지통으로 옮길까요?\n' + core.TRASH_DAYS + '일 안에는 되살릴 수 있습니다.')) return;
+  try { await api('POST', '/api/todos/' + core.noLabel(t.no) + '/delete', {}); closeModal(); toast('휴지통으로 옮김'); }
+  catch (e) { fail(e); }
+}
+function openFromHash() {
+  if (hashOpened) return;
+  const n = core.parseNo(location.hash.replace(/^#/, ''));
+  if (!n) return;
+  const t = todos.find(x => x.no === n);
+  if (t) { hashOpened = true; openEdit(t._id); }
+}
+
+// ── 방금 바뀐 것 ──
+function ago(ms) {
+  const s = Math.floor((now() - ms) / 1000);
+  if (s < 60) return '방금'; if (s < 3600) return Math.floor(s / 60) + '분 전'; if (s < 86400) return Math.floor(s / 3600) + '시간 전';
+  return new Date(ms).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
+}
+function renderActs() {
+  document.getElementById('act-n').textContent = acts.length ? acts.length + '건' : '';
+  document.getElementById('acts').innerHTML = acts.length ? acts.map(a => '<div class="act"><time>' + ago(a.at) + (a.via === 'mcp' ? ' · 채팅' : a.via === 'script' ? ' · 자동' : '') + '</time>' + esc(a.summary) + '</div>').join('')
+    : '<div class="empty">아직 기록이 없습니다.</div>';
+}
+
+// ── 관리: 기존 할 일 번호 붙이기 ──
+function renderAdmin() {
+  const n = todos.filter(t => !t.no).length;
+  let h = '<div class="sec"><h2>🔢 기존 할 일 번호 붙이기</h2><div style="padding:12px">'
+    + '<p style="margin:0 0 10px;font-size:13px;color:var(--text2)">번호가 없는 할 일 <b>' + n + '건</b>에 만든 순서대로 T-번호를 붙입니다. 내용·상태는 바꾸지 않고, 출처·완료일 같은 빈칸만 채웁니다. 이미 번호가 있는 할 일은 건드리지 않으므로 여러 번 눌러도 안전합니다.</p>'
+    + '<button class="btn" onclick="migPrev()">① 미리보기</button> '
+    + (migPreview && migPreview.count ? '<button class="btn primary" onclick="migApply()">② ' + migPreview.count + '건 적용</button>' : '')
+    + '</div>';
+  if (migPreview) {
+    h += migPreview.count ? '<div style="padding:0 12px 12px;overflow:auto"><table class="mig"><tr><th>붙일 번호</th><th>할 일</th><th>기업</th><th>상태</th><th>채울 칸</th></tr>'
+      + migPreview.items.map(i => '<tr><td class="no">' + esc(i.label) + '</td><td>' + esc(i.text) + '</td><td>' + esc(shortCo(i.companyName)) + '</td><td>' + esc(core.STATUS_LABEL[i.status] || i.status) + '</td><td>' + esc(i.fills.join(', ')) + '</td></tr>').join('')
+      + '</table>' + (migPreview.remaining ? '<p class="info">이번에 ' + migPreview.count + '건, 나머지 ' + migPreview.remaining + '건은 다시 누르면 이어서 붙입니다.</p>' : '') + '</div>'
+      : '<div class="empty">번호를 붙일 할 일이 없습니다. (이미 번호 있음 ' + migPreview.alreadyNumbered + '건)</div>';
+  }
+  return h + '</div>'
+    + '<div class="sec"><h2>ℹ️ 이 화면</h2><div style="padding:12px;font-size:13px;color:var(--text2)">읽기는 데이터베이스를 실시간으로, 쓰기는 쓰기 창구(' + esc(API.replace('https://', '')) + ')를 거칩니다. 이 기기 사용자: <b>' + esc(me || '선택 안 함') + '</b> <button class="btn sm" onclick="pickMe()">바꾸기</button></div></div>';
+}
+async function migPrev() {
+  try { migPreview = await api('GET', '/api/admin/migrate'); render(); }
+  catch (e) { fail(e); }
+}
+async function migApply() {
+  if (!migPreview || !migPreview.count) return;
+  if (!confirm(migPreview.count + '건에 번호를 붙입니다. 계속할까요?')) return;
+  try {
+    const r = await api('POST', '/api/admin/migrate', {});
+    toast(r.applied ? r.applied + '건 번호 붙임 (' + esc(r.first) + '~' + esc(r.last) + ')' : '붙일 것이 없습니다');
+    migPreview = null; render();
+  } catch (e) { fail(e); }
+}
+
+window.addEventListener('hashchange', () => { hashOpened = false; openFromHash(); });
+Object.assign(window, { signIn, signOutNow, pickMe, setMe, setView, act, quickAdd, quickHint, openEdit, saveEdit, delTodo, closeModal, weekMove, migPrev, migApply });
+</script>
+</body>
+</html>

@@ -230,3 +230,31 @@ test('연결 확인 주소 — 내용 없이 연결 여부만', async () => {
   const bad = await handle(new Request('https://x/health?check=firestore'), Object.assign({}, ENV, { GCP_SA_KEY: '' }), { nowMs: NOW });
   assert.equal(bad.status, 503); assert.match((await bad.json()).firestore, /GCP_SA_KEY/);
 });
+
+test('기존 할 일 번호 붙이기 — 미리보기·적용·두 번 돌려도 안전', async () => {
+  const { migratePreview, migrateApply } = await import('../src/todos.js');
+  const db = seed({
+    'todos/abc': { text: '김종지 대표 연락', status: 'wait', createdAt: 3000 },
+    'todos/old': { text: '하이퍼다인 벤처인증', status: 'ing', createdAt: 1000 },
+    'todos/cert1': { text: '[청림테크] 벤처 갱신 준비', status: 'done', certTaskId: 'C9', createdAt: 2000, updatedAt: 2500 },
+    'todos/voice_x': { text: '주식 확인하기', status: 'wait', source: 'voice', sourceRef: 'task:T1', createdAt: 4000 },
+  });
+  const pv = await migratePreview(db);
+  assert.equal(pv.count, 4);
+  assert.deepEqual(pv.items.map(i => i.docId), ['old', 'cert1', 'abc', 'voice_x']);   // 오래된 순
+  assert.equal(db.store.get('todos/old').no, undefined);                               // 미리보기는 쓰지 않음
+  const r = await migrateApply(ctxOf(db));
+  assert.equal(r.applied, 4); assert.equal(r.first, 'T-0001'); assert.equal(r.last, 'T-0004');
+  assert.equal(db.store.get('todos/old').no, 1);
+  const c = db.store.get('todos/cert1');
+  assert.equal(c.source, 'cert'); assert.equal(c.dedupeKey, 'cert:C9'); assert.equal(c.doneAt, 2500);
+  assert.equal(db.store.get('todos/voice_x').dedupeKey, 'voice:task:T1');
+  assert.equal(db.store.get('todos/abc').source, 'manual');
+  assert.equal(db.store.get('app_state/todo_seq').last, 4);
+  assert.equal((await migrateApply(ctxOf(db))).applied, 0);                             // 두 번째는 할 것 없음
+  // 그 뒤 새 할 일은 T-0005, 번호로 고칠 수 있음
+  assert.equal((await createTodo(ctxOf(db), { text: '새 할 일' })).label, 'T-0005');
+  await completeTodo(ctxOf(db), 'T-0002');
+  assert.equal(db.store.get('todos/old').status, 'ing');
+  assert.equal(db.store.get('todos/cert1').status, 'done');
+});

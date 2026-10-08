@@ -233,3 +233,56 @@ export async function changesSince(db, { since, company, limit = 100 } = {}, now
   rows.sort((a, b) => b.at - a.at);
   return { since: from, total: rows.length, items: rows.slice(0, Math.min(500, limit)).map(r => ({ at: r.at, ref: r.ref, action: r.action, by: r.by, via: r.via, summary: r.summary })) };
 }
+
+// ── 기존 할 일 번호 붙이기 (이전 작업) ── TODO_ARCHITECTURE.md §8
+//   번호(no)가 없는 문서에 createdAt 오래된 순으로 번호를 붙이고, 출처·중복키·완료일을 채운다.
+//   이미 번호가 있는 문서는 건드리지 않는다 → 여러 번 돌려도 안전. 한 번에 최대 400건(Firestore 한 번 저장 한도 500)
+const MIGRATE_MAX = 400;
+function legacySource(t) { return t.source || (t.certTaskId ? 'cert' : t.isoAuditId ? 'iso' : 'manual'); }
+function legacyDedupe(t, source) {
+  if (t.dedupeKey) return t.dedupeKey;
+  if (t.sourceRef && source !== 'manual') return source + ':' + t.sourceRef;
+  if (t.certTaskId) return 'cert:' + t.certTaskId;
+  if (t.isoAuditId) return 'iso:' + t.isoAuditId;
+  return '';
+}
+function migratePlan(docs, lastNo) {
+  const todo = docs.filter(d => !(Number(d.data.no) > 0))
+    .sort((a, b) => (a.data.createdAt || 0) - (b.data.createdAt || 0) || a.id.localeCompare(b.id));
+  const maxNo = docs.reduce((m, d) => Math.max(m, Number(d.data.no) || 0), Number(lastNo) || 0);
+  let no = maxNo;
+  const items = todo.slice(0, MIGRATE_MAX).map(d => {
+    const t = d.data; no += 1;
+    const set = { no };
+    const source = legacySource(t);
+    if (!t.source) set.source = source;
+    const dk = legacyDedupe(t, source);
+    if (dk && !t.dedupeKey) set.dedupeKey = dk;
+    if (t.status === 'done' && !t.doneAt) set.doneAt = t.updatedAt || t.createdAt || null;
+    if (!t.status) set.status = 'wait';
+    return { path: d.path, docId: d.id, label: noLabel(no), text: t.text || '', companyName: t.companyName || '', status: t.status || 'wait', set };
+  });
+  return { items, remaining: Math.max(0, todo.length - items.length), lastNo: no, alreadyNumbered: docs.length - todo.length };
+}
+export async function migratePreview(db) {
+  const [docs, seq] = await Promise.all([db.list('todos'), db.get(SEQ_PATH)]);
+  const p = migratePlan(docs, seq && seq.data.last);
+  return { preview: true, count: p.items.length, remaining: p.remaining, alreadyNumbered: p.alreadyNumbered, nextLastNo: p.lastNo,
+    items: p.items.map(i => ({ label: i.label, docId: i.docId, text: i.text, companyName: i.companyName, status: i.status, fills: Object.keys(i.set).filter(k => k !== 'no') })) };
+}
+export async function migrateApply(ctx) {
+  const { db, actor, nowMs = Date.now() } = ctx;
+  return db.transaction(async (tx) => {
+    const [docs, seq] = [await tx.query('todos', [], {}), await tx.get(SEQ_PATH)];
+    const p = migratePlan(docs, seq && seq.data.last);
+    if (!p.items.length) return { applied: 0, remaining: 0, lastNo: p.lastNo };
+    p.items.forEach(i => tx.update(i.path, i.set));
+    tx.set(SEQ_PATH, { last: p.lastNo, updatedAt: nowMs });
+    tx.create(activityPath(nowMs), {
+      at: nowMs, app: 'todo', ref: 'MIGRATE', no: 0, action: 'migrate',
+      summary: actor.name + ' · 기존 할 일 ' + p.items.length + '건에 번호 붙임 (' + p.items[0].label + '~' + p.items[p.items.length - 1].label + ')',
+      by: actor.name, via: actor.via, email: actor.email || '', bizno: '', changes: {},
+    });
+    return { applied: p.items.length, remaining: p.remaining, lastNo: p.lastNo, first: p.items[0].label, last: p.items[p.items.length - 1].label };
+  });
+}

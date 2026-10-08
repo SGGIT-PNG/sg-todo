@@ -1,6 +1,7 @@
 # sg-todo
 SG솔루션 할 일 프로그램 — 쓰기 창구(Cloudflare Worker)와 할 일 웹 화면.
 
+- 할 일 화면: `index.html` → https://sggit-png.github.io/sg-todo/
 - 쓰기 창구: `worker/` → https://sg-todo.sgsolution.workers.dev
 - 데이터: SGCRM Firestore `todos` (+ 변동 기록 `activity`)
 - 작업 지침: [CLAUDE.md](CLAUDE.md)
