@@ -1,0 +1,19 @@
+# SG솔루션 할 일 쓰기 창구 — Cloudflare Worker 설정
+# 주소: https://sg-todo.sgsolution.workers.dev
+# 비밀값은 여기에 쓰지 않는다. Cloudflare 대시보드 → Workers → sg-todo → 설정 → 변수 및 비밀(Secret)에 넣는다:
+#   GCP_SA_KEY  서비스 계정 sg-todo-api 키 JSON 전체
+#   INGEST_KEY  드라이브 스크립트·비서용 키 (나중 단계)
+name = "sg-todo"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[vars]
+FIREBASE_PROJECT = "sg-crm-f9adc"
+# 로그인 허용 메일 (쉼표로 구분) — SGCRM CRM_ALLOWED_EMAILS · Firestore 규칙과 같게
+ALLOWED_EMAILS = "sgceo@sgsolutionss.com"
+# 브라우저에서 부를 수 있는 화면 주소 (쉼표로 구분)
+ALLOWED_ORIGINS = "https://sggit-png.github.io,http://localhost:8765"
+
+[observability]
+enabled = true

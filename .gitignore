@@ -1,0 +1,8 @@
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.*
+# 서비스 계정 키 파일이 실수로 올라가지 않게 (sg-crm-f9adc-xxxx.json 등)
+*service-account*.json
+sg-crm-f9adc-*.json
+*-key.json
