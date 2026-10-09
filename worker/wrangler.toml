@@ -2,7 +2,8 @@
 # 주소: https://sg-todo.sgsolution.workers.dev
 # 비밀값은 여기에 쓰지 않는다. Cloudflare 대시보드 → Workers → sg-todo → 설정 → 변수 및 비밀(Secret)에 넣는다:
 #   GCP_SA_KEY  서비스 계정 sg-todo-api 키 JSON 전체
-#   INGEST_KEY  드라이브 스크립트·비서용 키 (나중 단계)
+#   INGEST_KEY  드라이브 스크립트·비서용 키
+#   MCP_SECRET  (선택) Claude 커넥터 출입증 서명 키 — 없으면 GCP_SA_KEY에서 만들어 씀. 값을 바꾸면 연결된 커넥터가 전부 끊김(비상 차단)
 name = "sg-todo"
 main = "src/index.js"
 compatibility_date = "2026-10-01"

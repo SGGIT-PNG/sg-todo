@@ -16,6 +16,8 @@
 //   GET    /api/admin/auto                자동 생성 미리보기(인증 갱신·ISO·연간신고) / POST 지금 실행 (매일 06:00 예약 작업과 같음)
 //   POST   /api/admin/rebizno             {from, to} 사업자번호 변경 — 그 기업 할 일을 옮김 (SGCRM이 부름)
 //   POST   /api/ingest                    (드라이브 스크립트·비서, X-Api-Key) {text, source, sourceRef, company?, due?, memo?}
+//   POST   /mcp                           Claude 채팅 도구(MCP) — 출입증은 /oauth/* 로그인으로 (mcp.js · oauth.js)
+//   GET    /.well-known/oauth-protected-resource · /.well-known/oauth-authorization-server   커넥터 안내 문서
 //
 // 쓰기 요청에는 X-SG-User: 정석진|김학미|공동 (URL 인코딩) 헤더가 필요하다 — 공용 계정이라 사람을 따로 받는다.
 
@@ -27,6 +29,8 @@ import {
   migratePreview, migrateApply, rebizno,
 } from './todos.js';
 import { previewAuto, runAuto } from './auto.js';
+import * as oauth from './oauth.js';
+import { handleMcpPost } from './mcp.js';
 
 const INGEST_SOURCES = ['voice', 'chat', 'secretary', 'card', 'lead'];   // chat = 드라이브 스크립트가 옮기는 채팅 「할일」 일정(MCP 전까지)
 
@@ -67,6 +71,19 @@ export async function handle(request, env, deps = {}) {
         }
       }
       return json(out, out.ok ? 200 : 503, cors);
+    }
+    // ── Claude 커넥터 (MCP + 로그인) ──
+    if (path.startsWith('/.well-known/oauth-protected-resource')) return oauth.protectedResourceMeta(request);
+    if (path.startsWith('/.well-known/oauth-authorization-server') || path.startsWith('/.well-known/openid-configuration')) return oauth.authServerMeta(request);
+    if (path === '/oauth/register' && request.method === 'POST') return oauth.register(request, env, nowMs);
+    if (path === '/oauth/authorize' && request.method === 'GET') return oauth.authorizePage(request, env, nowMs);
+    if (path === '/oauth/approve' && request.method === 'POST') return oauth.approve(request, env, deps, nowMs);
+    if (path === '/oauth/token' && request.method === 'POST') return oauth.token(request, env, nowMs);
+    if (path === '/mcp') {
+      if (request.method !== 'POST') return new Response(null, { status: 405, headers: { allow: 'POST' } });
+      const who = await oauth.checkAccess(request, env, nowMs);
+      if (!who) return oauth.unauthorized(request);
+      return handleMcpPost(request, () => ({ db: deps.db || restDb({ projectId: env.FIREBASE_PROJECT, saKey: env.GCP_SA_KEY }), email: who.email, nowMs }));
     }
     if (!path.startsWith('/api/')) return json({ ok: false, error: '없는 주소입니다' }, 404, cors);
 

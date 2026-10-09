@@ -21,6 +21,7 @@ SG솔루션 **할 일 프로그램**. 데이터는 SGCRM Firebase(`sg-crm-f9adc`
 | `worker/src/auth.js` | Firebase 로그인 토큰 확인(허용 메일) · 스크립트 키 · 작성자(X-SG-User) |
 | `index.html` | **할 일 웹 화면** (GitHub Pages → https://sggit-png.github.io/sg-todo/). 읽기 = Firestore 실시간 구독, 쓰기 = 쓰기 창구 API. `worker/src/core.js`를 그대로 import (규칙 한 곳) |
 | `worker/src/auto.js` | 자동 생성(인증 갱신 D-90·ISO 차기심사 D-90·연구소 연간신고 3/1~기한 — SGCRM 규칙 그대로) + 휴지통 30일 정리. **매일 06:00 KST cron**(wrangler.toml) · 관리 탭 「지금 실행」 |
+| `worker/src/mcp.js` · `oauth.js` | **Claude 커넥터** `POST /mcp`(도구 9개: todo_add·complete·update·list·get·changes·delete·restore, company_find) + 로그인 `/oauth/*`(구글 로그인 → 서명 출입증 1시간·갱신증 90일, KV 없음). 쓰기 도구는 `author` 필수, 기록 `via:'mcp'`. claude.ai 커스텀 커넥터 주소 = `https://sg-todo.sgsolution.workers.dev/mcp` |
 | `/api/ingest` · `/api/admin/rebizno` | 드라이브 스크립트 v7(음성·채팅, X-Api-Key=INGEST_KEY) · SGCRM 사업자번호 변경 |
 | `worker/src/todos.js` 번호 붙이기 | `GET/POST /api/admin/migrate` — 기존 할 일 번호 부여(미리보기 → 적용, 여러 번 안전). 웹 「관리」 탭 |
 
