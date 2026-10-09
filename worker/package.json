@@ -4,6 +4,6 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.js",
-    "check": "node --check src/index.js && node --check src/core.js && node --check src/todos.js && node --check src/auth.js && node --check src/firestore.js && node --check src/auto.js"
+    "check": "node --check src/index.js && node --check src/core.js && node --check src/todos.js && node --check src/auth.js && node --check src/firestore.js && node --check src/auto.js && node --check src/oauth.js && node --check src/mcp.js"
   }
 }
