@@ -15,7 +15,7 @@ const INSTRUCTIONS = 'SG솔루션 할 일(T-번호) 도구. 할 일을 넣거나
   + '번호는 T-0123 형식. 삭제는 휴지통(30일 안에 todo_restore로 되살림). 「안 하기로 한 일」은 삭제가 아니라 status=cancel. '
   + '할 일은 세 칸 — 하고 있는 업무(시작일이 오늘이거나 지남)·해야 할 업무(시작일이 앞날)·완료 업무. 시작일 기본은 오늘이고, 「내일부터」「다음 주 월요일부터」처럼 말하면 start에 그 날짜를 넣는다. '
   + '「어제 끝냈어」처럼 끝낸 날을 말하면 todo_complete의 date에 넣는다. '
-  + '제안 업무 = 업체가 맡기지 않았지만 우리가 먼저 제안하려는 일(「하이퍼다인 ISO 인증 제안 예정」) → todo_add status=idea. 제안 업무는 우리 아이디어 목록이라 시작일·마감을 넣지 않는다(넣어도 비워진다). 목록은 todo_list view=idea. '
+  + '제안 업무 = 업체가 맡기지 않았지만 우리가 먼저 제안하려는 일(「하이퍼다인 ISO 인증 제안 예정」) → todo_add status=idea. 제안 업무의 날짜(start 시작일·due 종료일)는 사용자가 말했을 때만 넣고, 먼저 권하지 않는다. 날짜가 있어도 제안 칸에 머문다(시작일이 와도 옮기지 않고, 종료일이 지나도 빨간 표시 없음). 목록은 todo_list view=idea. '
   + '제안해서 실제로 맡게 되면 todo_update status=ing(지금부터) 또는 status=wait+start(그 날부터)로 옮긴다.';
 
 // ── 도구 정의 ──
@@ -39,7 +39,7 @@ const FIELDS = {
   company: { type: 'string', description: '기업 이름 또는 사업자번호(000-00-00000). 빈 문자열이면 기업 연결 해제' },
   start: START,
   due: DUE,
-  status: { type: 'string', enum: STATUSES, description: '보통은 넣지 않는다(칸은 시작일로 정해짐). idea = 제안 업무(아직 맡지 않은, 우리가 먼저 제안할 일 — 시작일과 상관없이 제안 칸) · waiting = 기다리는 중 꼬리표(누구를·무엇을은 waitingFor) · ing = 지금 시작(시작일이 앞날이면 오늘로 당김) · wait = 기다림 꼬리표 떼기·다시 열기 · done 완료 · cancel 취소(안 하기로 함)' },
+  status: { type: 'string', enum: STATUSES, description: '보통은 넣지 않는다(칸은 시작일로 정해짐). idea = 제안 업무(아직 맡지 않은, 우리가 먼저 제안할 일 — 날짜와 상관없이 제안 칸) · waiting = 기다리는 중 꼬리표(누구를·무엇을은 waitingFor) · ing = 지금 시작(시작일이 앞날이면 오늘로 당김) · wait = 기다림 꼬리표 떼기·다시 열기 · done 완료 · cancel 취소(안 하기로 함)' },
   waitingFor: { type: 'string', description: '기다리는 대상 (예: 「고객 서류 회신」)' },
   kind: { type: 'string', enum: ['', ...KINDS], description: 'call 전화 · doc 서류 · apply 신청 · visit 방문 · chase 독촉 · internal 내부' },
   category: { type: 'string', description: '분류 (예: 지원사업, ISO, 인증)' },
@@ -52,7 +52,7 @@ const pick = (keys) => Object.fromEntries(keys.map(k => [k, FIELDS[k]]));
 export const TOOLS = [
   {
     name: 'todo_add', title: '할 일 추가',
-    description: '할 일을 하나 추가하고 T-번호를 돌려준다. 제안 업무(우리가 먼저 제안할 일)는 status=idea — 시작일·마감 없이 넣는다(「언제쯤 제안」 같은 말은 memo에). 기업 후보가 여럿이면 저장하지 않고 후보 목록을 돌려준다(사용자에게 고르게 한 뒤 사업자번호로 다시 호출).',
+    description: '할 일을 하나 추가하고 T-번호를 돌려준다. 제안 업무(우리가 먼저 제안할 일)는 status=idea — 시작일(start)·종료일(due)은 사용자가 말했을 때만 넣는다(없으면 비워 둠, 등록한 날로 채우지 않음). 기업 후보가 여럿이면 저장하지 않고 후보 목록을 돌려준다(사용자에게 고르게 한 뒤 사업자번호로 다시 호출).',
     inputSchema: { type: 'object', required: ['text', 'author'], properties: Object.assign({ author: AUTHOR }, pick(['text', 'company', 'start', 'due', 'status', 'waitingFor', 'kind', 'category', 'priority', 'memo', 'repeat']),
       { ref: { type: 'string', description: '(선택) 같은 내용을 두 번 넣지 않게 하는 출처 표시 — 같은 ref로 다시 부르면 새로 만들지 않음' } }) },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -175,8 +175,8 @@ export async function callTool(name, args, { db, email, nowMs }) {
       const r = await createTodo(ctx, fields, ref ? { source: 'chat', sourceRef: String(ref) } : { source: 'chat', checkRecentDup: true });
       const t = r.todo;
       const today = kstToday(nowMs);
-      const where = t.status === 'idea' ? ' · 💡 제안 업무' : t.startDate > today ? ' · 해야 할 업무(' + t.startDate + ' 시작)' : ' · 하고 있는 업무';
-      const tail = (t.companyName ? ' · ' + t.companyName : '') + where + (t.dueDate ? ' · 마감 ' + t.dueDate : '') + (t.status === 'waiting' ? ' · 기다리는 중' : '') + (t.priority === 'high' ? ' · 긴급' : '');
+      const where = t.status === 'idea' ? ' · 💡 제안 업무' + (t.startDate ? '(시작 ' + t.startDate + ')' : '') : t.startDate > today ? ' · 해야 할 업무(' + t.startDate + ' 시작)' : ' · 하고 있는 업무';
+      const tail = (t.companyName ? ' · ' + t.companyName : '') + where + (t.dueDate ? (t.status === 'idea' ? ' · 종료 ' : ' · 마감 ') + t.dueDate : '') + (t.status === 'waiting' ? ' · 기다리는 중' : '') + (t.priority === 'high' ? ' · 긴급' : '');
       return r.created ? r.label + ' 저장됨' + tail + ' — ' + t.text : '이미 있는 할 일이라 새로 만들지 않았습니다: ' + r.label + tail + ' — ' + t.text;
     }
     case 'todo_complete': {
@@ -209,7 +209,7 @@ export async function callTool(name, args, { db, email, nowMs }) {
       const t = await getTodo(db, rest.no, nowMs);
       const rows = [
         line(t),
-        '칸: ' + (COL_LABEL[t.col] || t.col) + (t.col === 'idea' ? '' : ' · 시작 ' + t.startDate) + (t.dueDate ? ' · 마감 ' + t.dueDate : '') + (t.doneDate ? ' · 완료 ' + t.doneDate : '')
+        '칸: ' + (COL_LABEL[t.col] || t.col) + (t.startDate ? ' · 시작 ' + t.startDate : '') + (t.dueDate ? (t.col === 'idea' ? ' · 종료 ' : ' · 마감 ') + t.dueDate : '') + (t.doneDate ? ' · 완료 ' + t.doneDate : '')
           + (t.status === 'waiting' ? ' · 기다리는 중' + (t.waitingFor ? '(' + t.waitingFor + ')' : '') : '') + (t.status === 'cancel' ? ' · 취소' : '') + (t.deletedAt ? ' · 휴지통에 있음' : ''),
         t.bizno ? '기업: ' + t.companyName + ' (' + t.bizno + ')' : '',
         t.category || t.kind ? '분류: ' + [t.category, t.kind].filter(Boolean).join(' · ') : '',

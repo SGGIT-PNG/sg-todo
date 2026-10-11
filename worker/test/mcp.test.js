@@ -205,6 +205,9 @@ test('MCP 도구 — 추가·완료·수정·조회·바뀐 것·삭제·되살�
   // 제안 업무
   r = await tool('todo_add', { text: 'ISO 인증 제안', company: '하이퍼다인', status: 'idea', author: '정석진' });
   assert.match(r.text, /저장됨 · ㈜하이퍼다인 · 💡 제안 업무/);
+  r = await tool('todo_add', { text: '연구소 설립 제안', status: 'idea', start: '10/20', due: '10/30', author: '정석진' });   // 사용자가 날짜를 말했을 때
+  assert.match(r.text, /💡 제안 업무\(시작 2026-10-20\) · 종료 2026-10-30/);
+  r = await tool('todo_delete', { no: r.text.match(/^T-\d+/)[0], reason: '시험', author: '정석진' });
   assert.match((await tool('todo_list', { view: 'idea' })).text, /제안 업무 1건[^\n]*\nT-\d+ \[💡 제안 · 오늘 등록\] ㈜하이퍼다인 — ISO 인증 제안/);
   // 기업 찾기
   assert.match((await tool('company_find', { query: '청림' })).text, /후보 2곳/);

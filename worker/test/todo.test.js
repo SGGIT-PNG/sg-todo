@@ -339,23 +339,34 @@ test('드라이브 스크립트 ingest — 채팅 출처·작성자 이름', asy
   assert.equal(chk.status, 400); assert.match((await chk.json()).error, /sourceRef/);
 });
 
-test('제안 업무 — 시작일과 상관없이 제안 칸, 맡으면 오늘부터 하고 있는 업무', async () => {
+test('제안 업무 — 날짜는 사람이 넣을 때만, 와도 제안 칸에 머묾, 맡으면 하고 있는·해야 할 업무로 (A안)', async () => {
   const db = seed();
-  await createTodo(ctxOf(db), { text: 'ISO 인증 제안', company: '하이퍼다인', status: 'idea', due: '10/30' });
+  // 날짜 없이 넣으면 비어 있다(등록한 날로 채우지 않음)
+  await createTodo(ctxOf(db), { text: 'ISO 인증 제안', company: '하이퍼다인', status: 'idea' });
   let t = db.store.get('todos/T-0001');
-  assert.equal(t.status, 'idea');
-  assert.equal(t.startDate, ''); assert.equal(t.dueDate, '');   // 제안 업무에는 날짜가 없다(넣어도 비움)
+  assert.equal(t.status, 'idea'); assert.equal(t.startDate, ''); assert.equal(t.dueDate, '');
   const later = NOW + 20 * DAY;
   let b = core.bucket(t, core.RULES_DEFAULT, later);
   assert.equal(b.col, 'idea'); assert.equal(b.alert, false); assert.equal(b.reason, '등록 20일 전');
-  // 제안인 채로 날짜를 넣으려 해도 비워 둔다
-  await updateTodo(ctxOf(db), 'T-0001', { due: '11/5', start: '10/20' });
+  assert.equal(core.startOf(t, later), '');
+  // 사람이 날짜를 넣으면 저장·표시만 — 시작일이 와도 제안 칸, 종료일이 지나도 빨간 표시 없이 회색
+  await updateTodo(ctxOf(db), 'T-0001', { start: '10/20', due: '11/5' });
   t = db.store.get('todos/T-0001');
-  assert.equal(t.startDate, ''); assert.equal(t.dueDate, '');
+  assert.equal(t.startDate, '2026-10-20'); assert.equal(t.dueDate, '2026-11-05');
+  b = core.bucket(t, core.RULES_DEFAULT, NOW);
+  assert.equal(b.col, 'idea'); assert.deepEqual(b.tags, [{ t: '시작 10/20', tone: 'plain' }, { t: '종료 11/05', tone: 'plain' }]);
+  b = core.bucket(t, core.RULES_DEFAULT, later);                       // 10/28 — 시작일 지남
+  assert.equal(b.col, 'idea'); assert.equal(b.alert, false);
+  b = core.bucket(t, core.RULES_DEFAULT, NOW + 30 * DAY);              // 11/7 — 종료일 지남
+  assert.equal(b.col, 'idea'); assert.equal(b.alert, false); assert.deepEqual(b.tags[1], { t: '종료일 지남', tone: 'mute' });
   assert.equal((await listTodos(db, { view: 'open' }, later)).total, 0);
   assert.equal((await listTodos(db, { view: 'idea' }, later)).total, 1);
   assert.equal((await listTodos(db, { view: 'all', company: '하이퍼다인' }, later)).total, 1);
-  // 맡게 됨 → 시작일 = 그날(제안으로 묵힌 날은 안 셈)
+  // 날짜를 다시 비울 수도 있다
+  await updateTodo(ctxOf(db), 'T-0001', { start: '', due: '' });
+  t = db.store.get('todos/T-0001');
+  assert.equal(t.startDate, ''); assert.equal(t.dueDate, '');
+  // 맡게 됨(지금 시작) → 시작일 = 그날
   const r = await updateTodo(ctxOf(db, '정석진', 'web', later), 'T-0001', { status: 'ing' });
   t = db.store.get('todos/T-0001');
   assert.equal(t.startDate, '2026-10-28');
@@ -366,9 +377,21 @@ test('제안 업무 — 시작일과 상관없이 제안 칸, 맡으면 오늘�
   await createTodo(ctxOf(db), { text: '연구소 설립 제안', status: 'idea' });
   await updateTodo(ctxOf(db), 'T-0002', { status: 'wait', start: '10/20' });
   assert.equal(core.bucket(db.store.get('todos/T-0002'), core.RULES_DEFAULT, NOW).col, 'todo');
-  // 보통 할 일을 제안으로 돌리면 날짜를 지운다
-  await createTodo(ctxOf(db), { text: '벤처 제안', start: '10/20', due: '10/30' });
-  await updateTodo(ctxOf(db), 'T-0003', { status: 'idea' });
-  const t3 = db.store.get('todos/T-0003');
-  assert.equal(t3.startDate, ''); assert.equal(t3.dueDate, ''); assert.equal(core.bucket(t3, core.RULES_DEFAULT, NOW).col, 'idea');
+  // 제안에 적어 둔 시작일이 있으면 start 없이 맡아도 그 날부터
+  await createTodo(ctxOf(db), { text: '벤처 제안', status: 'idea', start: '10/15', due: '10/30' });
+  assert.equal(db.store.get('todos/T-0003').startDate, '2026-10-15');
+  await updateTodo(ctxOf(db), 'T-0003', { status: 'wait' });
+  assert.equal(db.store.get('todos/T-0003').startDate, '2026-10-15');
+  assert.equal(core.bucket(db.store.get('todos/T-0003'), core.RULES_DEFAULT, NOW).col, 'todo');
+  // 보통 할 일을 제안으로 돌리면 저절로 들어간 시작일은 비우고, 마감은 둔다
+  await createTodo(ctxOf(db), { text: '특허 제안', due: '10/30' });
+  assert.equal(db.store.get('todos/T-0004').startDate, '2026-10-08');
+  await updateTodo(ctxOf(db), 'T-0004', { status: 'idea' });
+  const t4 = db.store.get('todos/T-0004');
+  assert.equal(t4.startDate, ''); assert.equal(t4.dueDate, '2026-10-30'); assert.equal(core.bucket(t4, core.RULES_DEFAULT, NOW).col, 'idea');
+  // 보통 할 일은 시작일을 비우라고 해도 오늘
+  await createTodo(ctxOf(db), { text: '보통 일', start: '10/20' });
+  await updateTodo(ctxOf(db), 'T-0005', { start: '' });
+  assert.equal(db.store.get('todos/T-0005').startDate, '2026-10-08');
 });
+
