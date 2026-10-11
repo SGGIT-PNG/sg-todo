@@ -5,20 +5,23 @@
 import {
   createTodo, updateTodo, completeTodo, deleteTodo, restoreTodo, listTodos, getTodo, changesSince, loadCompanies, NotFoundError,
 } from './todos.js';
-import { RuleError, AUTHORS, STATUSES, STATUS_LABEL, KINDS, kstToday, resolveCompany } from './core.js';
+import { RuleError, AUTHORS, STATUSES, STATUS_LABEL, KINDS, kstToday, resolveCompany, COL_LABEL } from './core.js';
 import { AuthError } from './auth.js';
 
 const PROTOCOLS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const SERVER_INFO = { name: 'sg-todo', title: 'SG솔루션 할 일', version: '1.0.0' };
 const INSTRUCTIONS = 'SG솔루션 할 일(T-번호) 도구. 할 일을 넣거나 바꾸기 전에 누가 하는지(정석진·김학미·공동)를 author로 넣는다 — '
   + '대화나 프로젝트 지침에 이름이 없으면 먼저 물어본다. 기업은 이름이나 사업자번호로 company에 넣고, 후보가 여럿이라고 하면 사용자에게 골라 달라고 한다. '
-  + '번호는 T-0123 형식. 삭제는 휴지통(30일 안에 todo_restore로 되살림). 「안 하기로 한 일」은 삭제가 아니라 status=cancel.';
+  + '번호는 T-0123 형식. 삭제는 휴지통(30일 안에 todo_restore로 되살림). 「안 하기로 한 일」은 삭제가 아니라 status=cancel. '
+  + '할 일은 세 칸 — 하고 있는 업무(시작일이 오늘이거나 지남)·해야 할 업무(시작일이 앞날)·완료 업무. 시작일 기본은 오늘이고, 「내일부터」「다음 주 월요일부터」처럼 말하면 start에 그 날짜를 넣는다. '
+  + '「어제 끝냈어」처럼 끝낸 날을 말하면 todo_complete의 date에 넣는다.';
 
 // ── 도구 정의 ──
 const AUTHOR = { type: 'string', enum: AUTHORS, description: '누가 하는지 — 정석진·김학미·공동 (모르면 사용자에게 먼저 물을 것)' };
 const NOS = { description: '할 일 번호 (T-0123 또는 123). 여러 개면 배열', anyOf: [{ type: 'string' }, { type: 'integer' }, { type: 'array', items: { type: ['string', 'integer'] }, maxItems: 20 }] };
 const NO = { description: '할 일 번호 (T-0123 또는 123)', anyOf: [{ type: 'string' }, { type: 'integer' }] };
-const DUE = { type: 'string', description: '마감·확인일: 2026-10-20 · 10/20 · 10월 20일 · 오늘 · 내일 · 모레 · +7(7일 뒤). 빈 문자열이면 마감 없앰' };
+const DUE = { type: 'string', description: '(선택) 마감일 — 꼬리표로만 보임(칸은 시작일로 정함): 2026-10-20 · 10/20 · 10월 20일 · 오늘 · 내일 · 모레 · +7(7일 뒤). 빈 문자열이면 마감 없앰' };
+const START = { type: 'string', description: '시작일 — 이 날이 오면 「하고 있는 업무」로 옮겨 감. 기본 오늘. 「내일부터」=내일, 「다음 주 월요일부터」=그 날짜(YYYY-MM-DD로 계산해서). 형식: 2026-10-20 · 10/20 · 10월 20일 · 오늘 · 내일 · 모레 · +7' };
 const REPEAT = {
   description: '반복 — 완료하면 다음 회차가 자동으로 생김. 없애려면 null',
   anyOf: [{ type: 'null' }, {
@@ -32,12 +35,13 @@ const REPEAT = {
 const FIELDS = {
   text: { type: 'string', description: '할 일 내용 (500자 이하)' },
   company: { type: 'string', description: '기업 이름 또는 사업자번호(000-00-00000). 빈 문자열이면 기업 연결 해제' },
+  start: START,
   due: DUE,
-  status: { type: 'string', enum: STATUSES, description: 'wait 해야 할 일 · ing 하는 중 · waiting 기다리는 중(누구를·무엇을은 waitingFor) · done 완료 · cancel 취소(안 하기로 함)' },
+  status: { type: 'string', enum: STATUSES, description: '보통은 넣지 않는다(칸은 시작일로 정해짐). waiting = 기다리는 중 꼬리표(누구를·무엇을은 waitingFor) · ing = 지금 시작(시작일이 앞날이면 오늘로 당김) · wait = 기다림 꼬리표 떼기·다시 열기 · done 완료 · cancel 취소(안 하기로 함)' },
   waitingFor: { type: 'string', description: '기다리는 대상 (예: 「고객 서류 회신」)' },
   kind: { type: 'string', enum: ['', ...KINDS], description: 'call 전화 · doc 서류 · apply 신청 · visit 방문 · chase 독촉 · internal 내부' },
   category: { type: 'string', description: '분류 (예: 지원사업, ISO, 인증)' },
-  priority: { type: 'string', enum: ['', 'high'], description: 'high = 중요' },
+  priority: { type: 'string', enum: ['', 'high'], description: 'high = 긴급(★, 하고 있는 업무 맨 위)' },
   memo: { type: 'string', description: '메모 전체 (바꾸면 덮어씀 — 덧붙일 때는 memoAppend)' },
   repeat: REPEAT,
 };
@@ -47,28 +51,30 @@ export const TOOLS = [
   {
     name: 'todo_add', title: '할 일 추가',
     description: '할 일을 하나 추가하고 T-번호를 돌려준다. 기업 후보가 여럿이면 저장하지 않고 후보 목록을 돌려준다(사용자에게 고르게 한 뒤 사업자번호로 다시 호출).',
-    inputSchema: { type: 'object', required: ['text', 'author'], properties: Object.assign({ author: AUTHOR }, pick(['text', 'company', 'due', 'status', 'waitingFor', 'kind', 'category', 'priority', 'memo', 'repeat']),
+    inputSchema: { type: 'object', required: ['text', 'author'], properties: Object.assign({ author: AUTHOR }, pick(['text', 'company', 'start', 'due', 'status', 'waitingFor', 'kind', 'category', 'priority', 'memo', 'repeat']),
       { ref: { type: 'string', description: '(선택) 같은 내용을 두 번 넣지 않게 하는 출처 표시 — 같은 ref로 다시 부르면 새로 만들지 않음' } }) },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   },
   {
     name: 'todo_complete', title: '할 일 완료',
-    description: '할 일을 완료로 바꾼다(여러 개 가능). 반복 할 일이면 다음 회차 번호도 알려 준다.',
-    inputSchema: { type: 'object', required: ['no', 'author'], properties: { no: NOS, author: AUTHOR, note: { type: 'string', description: '완료 메모 (메모 끝에 덧붙음)' } } },
+    description: '할 일을 완료 업무로 옮긴다(여러 개 가능). 끝낸 날을 말하면 date에 넣는다(없으면 오늘). 이미 완료된 일에 date를 주면 완료일만 고친다. 반복 할 일이면 다음 회차 번호도 알려 준다.',
+    inputSchema: { type: 'object', required: ['no', 'author'], properties: { no: NOS, author: AUTHOR,
+      date: { type: 'string', description: '끝낸 날 — 오늘 · 어제 · 그제 · 3일 전 · 10/14 · 2026-10-14 (앞날은 안 됨). 기본 오늘' },
+      note: { type: 'string', description: '완료 메모 (메모 끝에 덧붙음)' } } },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: 'todo_update', title: '할 일 수정',
-    description: '할 일의 내용·상태·마감·기업·메모 등을 바꾼다. 바꿀 항목만 넣는다. 시작=status ing, 기다림=status waiting(+waitingFor, 확인일은 due), 다시 열기=status wait, 취소=status cancel, 미루기=due.',
-    inputSchema: { type: 'object', required: ['no', 'author'], properties: Object.assign({ no: NO, author: AUTHOR }, pick(['text', 'status', 'due', 'waitingFor', 'company', 'kind', 'category', 'priority', 'memo', 'repeat']),
+    description: '할 일의 내용·시작일·마감·기업·메모 등을 바꾼다. 바꿀 항목만 넣는다. 미루기=start(시작일을 뒤로) · 당기기/지금 시작=start 오늘 · 기다림=status waiting(+waitingFor) · 기다림 끝=status ing · 다시 열기=status wait · 취소=status cancel · 마감=due.',
+    inputSchema: { type: 'object', required: ['no', 'author'], properties: Object.assign({ no: NO, author: AUTHOR }, pick(['text', 'start', 'status', 'due', 'waitingFor', 'company', 'kind', 'category', 'priority', 'memo', 'repeat']),
       { memoAppend: { type: 'string', description: '메모 끝에 날짜와 함께 한 줄 덧붙임' } }) },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: 'todo_list', title: '할 일 목록',
-    description: '할 일 목록 — 웹 화면과 같은 칸 계산. today = 놓친 일·하는 중·기다리는 중·해야 할 일, missed = 놓친 일만, waiting = 기다리는 중, week = 7일 안 마감, open = 끝나지 않은 전부, recent_done = 최근 완료, trash = 휴지통.',
+    description: '할 일 목록 — 웹 화면과 같은 세 칸. open = 하고 있는 업무+해야 할 업무, ing = 하고 있는 업무(시작일 지남, N일째), todo = 해야 할 업무(시작 전, D-n), done = 완료 업무(최근 순), alert = 빨간 표시(마감 지남·14일 넘게 끈 일), waiting = 기다리는 중 꼬리표, week = 7일 안 마감, trash = 휴지통.',
     inputSchema: { type: 'object', properties: {
-      view: { type: 'string', enum: ['today', 'missed', 'waiting', 'week', 'open', 'recent_done', 'trash'], description: '기본 today' },
+      view: { type: 'string', enum: ['open', 'ing', 'todo', 'done', 'alert', 'waiting', 'week', 'trash'], description: '기본 open' },
       company: { type: 'string', description: '기업 이름(일부) 또는 사업자번호로 거르기' },
       category: { type: 'string', description: '분류로 거르기' },
       query: { type: 'string', description: '내용·메모·기업명 검색어' },
@@ -113,21 +119,22 @@ export const TOOLS = [
 ];
 
 // ── 보여 주는 글 ──
-const COL_LABEL = { miss: '놓침', ing: '하는 중', waiting: '기다림', todo: '해야 할 일', later: '나중', done: '완료', trash: '휴지통' };
+const SHORT = { ing: '하는 중', todo: '할 일', done: '완료', trash: '휴지통' };
 const md = (ds) => ds ? ds.slice(5).replace('-', '/') : '';
 function line(r) {
-  const tag = r.col === 'done' ? (r.status === 'cancel' ? '취소' : '완료') : COL_LABEL[r.col] + (r.reason ? '·' + r.reason : '');
-  return r.label + ' [' + tag + '] ' + (r.companyName ? r.companyName + ' — ' : '') + r.text + (r.dueDate ? ' (' + md(r.dueDate) + ')' : '')
-    + (r.priority === 'high' ? ' ★' : '') + (r.createdBy ? ' · ' + r.createdBy : '');
+  const tag = SHORT[r.col] + (r.reason ? ' · ' + r.reason : '') + (r.alert ? ' 🔴' : '');
+  return r.label + ' [' + tag + '] ' + (r.companyName ? r.companyName + ' — ' : '') + r.text
+    + (r.col === 'todo' ? ' (' + md(r.startDate) + ' 시작)' : '') + (r.createdBy ? ' · ' + r.createdBy : '');
 }
 const kstTime = (ms) => new Date(ms + 9 * 3600000).toISOString().slice(5, 16).replace('T', ' ').replace('-', '/');
-const FIELD_LABEL = { text: '내용', status: '상태', dueDate: '마감', waitingFor: '기다리는 대상', bizno: '기업', companyName: '기업명', category: '분류', kind: '종류', priority: '중요', memo: '메모', repeat: '반복' };
+const FIELD_LABEL = { text: '내용', status: '상태', startDate: '시작일', dueDate: '마감', waitingFor: '기다리는 대상', bizno: '기업', companyName: '기업명', category: '분류', kind: '종류', priority: '중요', memo: '메모', repeat: '반복' };
 function changeText(changes) {
   return Object.entries(changes || {}).filter(([k]) => k !== 'companyName').map(([k, [, to]]) => {
     if (k === 'status') return '상태 → ' + (STATUS_LABEL[to] || to);
     if (k === 'dueDate') return to ? '마감 → ' + to : '마감 없앰';
     if (k === 'memo') return '메모 수정';
     if (k === 'repeat') return to ? '반복 설정' : '반복 없앰';
+    if (k === 'doneAt') return to ? '완료일 → ' + kstToday(to) : '완료일 지움';
     return (FIELD_LABEL[k] || k) + ' → ' + (to === null || to === '' ? '(비움)' : typeof to === 'object' ? JSON.stringify(to) : to);
   }).join(', ');
 }
@@ -165,15 +172,19 @@ export async function callTool(name, args, { db, email, nowMs }) {
       const { ref, ...fields } = rest;
       const r = await createTodo(ctx, fields, ref ? { source: 'chat', sourceRef: String(ref) } : { source: 'chat', checkRecentDup: true });
       const t = r.todo;
-      const tail = (t.companyName ? ' · ' + t.companyName : '') + (t.dueDate ? ' · 마감 ' + t.dueDate : '') + (t.status !== 'wait' ? ' · ' + STATUS_LABEL[t.status] : '');
+      const today = kstToday(nowMs);
+      const where = t.startDate > today ? ' · 해야 할 업무(' + t.startDate + ' 시작)' : ' · 하고 있는 업무';
+      const tail = (t.companyName ? ' · ' + t.companyName : '') + where + (t.dueDate ? ' · 마감 ' + t.dueDate : '') + (t.status === 'waiting' ? ' · 기다리는 중' : '') + (t.priority === 'high' ? ' · 긴급' : '');
       return r.created ? r.label + ' 저장됨' + tail + ' — ' + t.text : '이미 있는 할 일이라 새로 만들지 않았습니다: ' + r.label + tail + ' — ' + t.text;
     }
     case 'todo_complete': {
       const out = [];
       for (const no of nosOf(rest.no)) {
         try {
-          const r = await completeTodo(ctx, no, rest.note);
-          out.push(r.label + (r.changed ? ' 완료' : ' 이미 완료') + ' — ' + r.todo.text + (r.next ? ' (반복: 다음 회차 ' + r.next.label + ', 마감 ' + r.next.dueDate + ')' : ''));
+          const r = await completeTodo(ctx, no, rest.note, rest.date);
+          const dd = r.todo.doneAt ? kstToday(r.todo.doneAt) : '';
+          const what = !r.changed ? ' 이미 완료' : r.changes && !r.changes.status && r.changes.doneAt ? ' 완료일 고침' : ' 완료';
+          out.push(r.label + what + (dd ? '(' + dd + ')' : '') + ' — ' + r.todo.text + (r.next ? ' (반복: 다음 회차 ' + r.next.label + ', ' + r.next.startDate + ' 시작 · 마감 ' + r.next.dueDate + ')' : ''));
         } catch (e) { out.push(String(no) + ' 실패: ' + e.message); }
       }
       if (!out.length) throw new RuleError('완료할 번호(no)를 넣어 주세요');
@@ -184,20 +195,20 @@ export async function callTool(name, args, { db, email, nowMs }) {
       if (!Object.keys(patch).length) throw new RuleError('바꿀 항목을 하나 이상 넣어 주세요');
       const r = await updateTodo(ctx, no, patch);
       if (!r.changed) return r.label + ' 바뀐 것 없음 — ' + r.todo.text;
-      return r.label + ' 수정됨: ' + changeText(r.changes) + ' — ' + r.todo.text + (r.next ? '\n반복: 다음 회차 ' + r.next.label + ' (마감 ' + r.next.dueDate + ')' : '');
+      return r.label + ' 수정됨: ' + changeText(r.changes) + ' — ' + r.todo.text + (r.next ? '\n반복: 다음 회차 ' + r.next.label + ' (' + r.next.startDate + ' 시작 · 마감 ' + r.next.dueDate + ')' : '');
     }
     case 'todo_list': {
-      const view = rest.view || 'today';
-      const r = await listTodos(db, { view, company: rest.company || '', category: rest.category || '', query: rest.query || '', limit: Number(rest.limit) || 30 }, nowMs);
-      const names = { today: '오늘 볼 할 일', missed: '놓친 일', waiting: '기다리는 중', week: '7일 안 마감', open: '끝나지 않은 할 일', recent_done: '최근 완료', trash: '휴지통' };
-      const head = names[view] + ' ' + r.total + '건' + (r.items.length < r.total ? ' (앞 ' + r.items.length + '건)' : '') + ' · 오늘 ' + kstToday(nowMs);
+      const r = await listTodos(db, { view: rest.view || 'open', company: rest.company || '', category: rest.category || '', query: rest.query || '', limit: Number(rest.limit) || 30 }, nowMs);
+      const names = { open: '하고 있는 업무 + 해야 할 업무', ing: COL_LABEL.ing, todo: COL_LABEL.todo, done: COL_LABEL.done + '(최근 순)', alert: '빨간 표시(마감 지남·오래 끈 일)', waiting: '기다리는 중', week: '7일 안 마감', trash: '휴지통' };
+      const head = names[r.view] + ' ' + r.total + '건' + (r.items.length < r.total ? ' (앞 ' + r.items.length + '건)' : '') + ' · 오늘 ' + kstToday(nowMs);
       return r.items.length ? head + '\n' + r.items.map(line).join('\n') : head + '\n(없음)';
     }
     case 'todo_get': {
       const t = await getTodo(db, rest.no, nowMs);
       const rows = [
         line(t),
-        '상태: ' + (STATUS_LABEL[t.status] || t.status) + (t.waitingFor ? ' · 기다리는 대상: ' + t.waitingFor : '') + (t.deletedAt ? ' · 휴지통에 있음' : ''),
+        '칸: ' + (COL_LABEL[t.col] || t.col) + ' · 시작 ' + t.startDate + (t.dueDate ? ' · 마감 ' + t.dueDate : '') + (t.doneDate ? ' · 완료 ' + t.doneDate : '')
+          + (t.status === 'waiting' ? ' · 기다리는 중' + (t.waitingFor ? '(' + t.waitingFor + ')' : '') : '') + (t.status === 'cancel' ? ' · 취소' : '') + (t.deletedAt ? ' · 휴지통에 있음' : ''),
         t.bizno ? '기업: ' + t.companyName + ' (' + t.bizno + ')' : '',
         t.category || t.kind ? '분류: ' + [t.category, t.kind].filter(Boolean).join(' · ') : '',
         t.repeat ? '반복: ' + JSON.stringify(t.repeat) : '',

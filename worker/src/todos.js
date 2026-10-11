@@ -3,7 +3,7 @@
 
 import {
   RuleError, cleanPatch, applyChange, newTodo, noLabel, parseNo, bucket, summarize, kstToday,
-  resolveCompany, findCompanyInText, nextRepeatDate, RULES_DEFAULT, TRASH_DAYS, SOURCES,
+  resolveCompany, findCompanyInText, nextRepeatDate, RULES_DEFAULT, TRASH_DAYS, SOURCES, addDays, daysBetween, startOf,
 } from './core.js';
 
 const SEQ_PATH = 'app_state/todo_seq';
@@ -125,6 +125,9 @@ export async function updateTodo(ctx, noInput, input) {
     if (write.status === 'done' && after.repeat && after.repeat.every) {
       const base = after.dueDate || kstToday(nowMs);
       const due = nextRepeatDate(base, after.repeat);
+      // 다음 회차 시작일 — 이번 회차의 「시작~마감」 간격을 그대로 (오늘보다 앞이면 오늘)
+      const gap = after.dueDate ? Math.max(0, daysBetween(startOf(after, nowMs), after.dueDate)) : 0;
+      const start = [addDays(due, -gap), kstToday(nowMs)].sort()[1];
       const seriesId = after.seriesId || noLabel(after.no);
       const ref = seriesId + ':' + due;
       const dup = await tx.query('todos', [['dedupeKey', '==', 'repeat:' + ref]], { limit: 1 });
@@ -132,7 +135,7 @@ export async function updateTodo(ctx, noInput, input) {
         const no = await nextNo(tx);
         const keep = {};
         for (const k of ['text', 'bizno', 'companyName', 'category', 'kind', 'priority', 'assignee', 'tag', 'repeat']) if (after[k]) keep[k] = after[k];
-        next = newTodo(Object.assign(keep, { status: 'wait', dueDate: due }), { no, source: 'repeat', sourceRef: ref, actor, nowMs, seriesId });
+        next = newTodo(Object.assign(keep, { status: 'wait', dueDate: due, startDate: start }), { no, source: 'repeat', sourceRef: ref, actor, nowMs, seriesId });
         tx.create('todos/' + noLabel(no), next);
         tx.set(SEQ_PATH, { last: no, updatedAt: nowMs });
         tx.create(activityPath(nowMs + 1), activityDoc('auto', next, {}, actor, nowMs));
@@ -141,12 +144,14 @@ export async function updateTodo(ctx, noInput, input) {
     }
     tx.update(doc.path, write);
     tx.create(activityPath(nowMs), activityDoc(write.status === 'done' ? 'complete' : 'update', after, changes, actor, nowMs));
-    return { changed: true, todo: after, label: noLabel(after.no), changes, next: next ? { label: noLabel(next.no), dueDate: next.dueDate } : null };
+    return { changed: true, todo: after, label: noLabel(after.no), changes, next: next ? { label: noLabel(next.no), dueDate: next.dueDate, startDate: next.startDate } : null };
   });
 }
 
-export function completeTodo(ctx, noInput, note) {
+// doneDate: 완료한 날(오늘·어제·10/14 …). 없으면 오늘
+export function completeTodo(ctx, noInput, note, doneDate) {
   const p = { status: 'done' };
+  if (doneDate !== undefined && doneDate !== null && String(doneDate).trim() !== '') p.doneDate = doneDate;
   if (note) p.memoAppend = '완료: ' + note;
   return updateTodo(ctx, noInput, p);
 }
@@ -182,25 +187,41 @@ async function loadRules(db) {
 export function present(t, rules, nowMs) {
   const b = bucket(t, rules, nowMs);
   return {
-    no: t.no, label: t.no ? noLabel(t.no) : '(번호 없음)', text: t.text, status: t.status, dueDate: t.dueDate || '',
+    no: t.no, label: t.no ? noLabel(t.no) : '(번호 없음)', text: t.text, status: t.status,
+    startDate: startOf(t, nowMs), dueDate: t.dueDate || '',
+    doneDate: t.doneAt && (t.status === 'done' || t.status === 'cancel') ? kstToday(t.doneAt) : '',
     bizno: t.bizno || '', companyName: t.companyName || '', category: t.category || '', kind: t.kind || '',
     priority: t.priority || '', waitingFor: t.waitingFor || '', memo: t.memo || '', source: t.source || '',
-    createdBy: t.createdBy || '', repeat: t.repeat || null, col: b.col, reason: b.reason,
+    createdBy: t.createdBy || '', repeat: t.repeat || null,
+    col: b.col, days: b.days, alert: b.alert, tags: b.tags, reason: b.reason,
   };
 }
-const COL_ORDER = { miss: 0, ing: 1, waiting: 2, todo: 3, later: 4, done: 5, trash: 6 };
-//   view: today(놓친·하는 중·기다림·해야) | missed | waiting | week(7일 안 마감) | open(완료 아닌 전부) | recent_done | trash
-export async function listTodos(db, { view = 'today', company, category, query, limit = 50 } = {}, nowMs = Date.now()) {
+// 하고 있는 업무 정렬: 긴급 → 빨간 표시(마감 지남·오래 끈 일) → 마감 가까운 순 → 오래된 순
+export function sortIng(a, b) {
+  return ((b.priority === 'high') - (a.priority === 'high')) || (b.alert - a.alert)
+    || (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || (b.days - a.days) || ((a.no || 0) - (b.no || 0));
+}
+// 해야 할 업무 정렬: 시작일 가까운 순 → 긴급
+export function sortTodo(a, b) {
+  return a.startDate.localeCompare(b.startDate) || ((b.priority === 'high') - (a.priority === 'high')) || ((a.no || 0) - (b.no || 0));
+}
+const COL_ORDER = { ing: 0, todo: 1, done: 2, trash: 3 };
+const VIEW_ALIAS = { today: 'open', missed: 'alert', recent_done: 'done' };   // 예전 이름도 받는다
+//   view: ing(하고 있는 업무) | todo(해야 할 업무) | done(완료, 최근 순) | open(ing+todo) | alert(빨간 표시) | waiting(기다리는 중) | week(7일 안 마감) | trash
+export async function listTodos(db, { view = 'open', company, category, query, limit = 50 } = {}, nowMs = Date.now()) {
+  view = VIEW_ALIAS[view] || view;
   const [docs, rules] = await Promise.all([db.list('todos'), loadRules(db)]);
   let rows = docs.map(d => present(d.data, rules, nowMs));
   const today = kstToday(nowMs);
+  const live = r => r.col === 'ing' || r.col === 'todo';
   const views = {
-    today: r => ['miss', 'ing', 'waiting', 'todo'].includes(r.col),
-    missed: r => r.col === 'miss',
-    waiting: r => r.col === 'waiting' || (r.status === 'waiting' && r.col === 'miss'),
-    week: r => !['done', 'trash'].includes(r.col) && r.dueDate && r.dueDate <= addDaysStr(today, 7),
-    open: r => !['done', 'trash'].includes(r.col),
-    recent_done: r => r.col === 'done',
+    ing: r => r.col === 'ing',
+    todo: r => r.col === 'todo',
+    done: r => r.col === 'done',
+    open: live,
+    alert: r => live(r) && r.alert,
+    waiting: r => live(r) && r.status === 'waiting',
+    week: r => live(r) && r.dueDate && r.dueDate <= addDaysStr(today, 7),
     trash: r => r.col === 'trash',
   };
   if (!views[view]) throw new RuleError('보기는 ' + Object.keys(views).join('·') + ' 중 하나입니다');
@@ -208,9 +229,9 @@ export async function listTodos(db, { view = 'today', company, category, query, 
   if (company) { const q = String(company).trim(); rows = rows.filter(r => r.bizno === q || r.companyName.includes(q)); }
   if (category) rows = rows.filter(r => r.category === category);
   if (query) { const q = String(query).toLowerCase(); rows = rows.filter(r => (r.text + ' ' + r.memo + ' ' + r.companyName).toLowerCase().includes(q)); }
-  if (view === 'recent_done') rows.sort((a, b) => (b.no || 0) - (a.no || 0));
-  else rows.sort((a, b) => COL_ORDER[a.col] - COL_ORDER[b.col] || (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || ((b.priority === 'high') - (a.priority === 'high')));
-  return { total: rows.length, items: rows.slice(0, Math.max(1, Math.min(200, limit))) };
+  if (view === 'done') rows.sort((a, b) => (b.doneDate || '').localeCompare(a.doneDate || '') || (b.no || 0) - (a.no || 0));
+  else rows.sort((a, b) => COL_ORDER[a.col] - COL_ORDER[b.col] || (a.col === 'todo' ? sortTodo(a, b) : sortIng(a, b)));
+  return { view, total: rows.length, items: rows.slice(0, Math.max(1, Math.min(200, limit))) };
 }
 function addDaysStr(ds, n) { const d = new Date(ds + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
 
@@ -284,6 +305,45 @@ export async function migrateApply(ctx) {
       by: actor.name, via: actor.via, email: actor.email || '', bizno: '', changes: {},
     });
     return { applied: p.items.length, remaining: p.remaining, lastNo: p.lastNo, first: p.items[0].label, last: p.items[p.items.length - 1].label };
+  });
+}
+
+// ── 시작일 채우기 (2026-10-11 세 칸 바꿈) ── 시작일이 없는 할 일에 「등록한 날」(createdAt, 한국 날짜)을 넣는다
+//   이미 시작일이 있는 문서는 건드리지 않는다 → 여러 번 돌려도 안전. 한 번에 최대 400건
+function startPlan(docs, nowMs) {
+  const need = docs.filter(d => !d.data.startDate)
+    .sort((a, b) => (Number(a.data.no) || 0) - (Number(b.data.no) || 0) || a.id.localeCompare(b.id));
+  const items = need.slice(0, MIGRATE_MAX).map(d => {
+    const t = d.data;
+    const base = t.createdAt || t.updatedAt || nowMs;
+    return { path: d.path, label: t.no ? noLabel(t.no) : d.id, text: t.text || '', companyName: t.companyName || '',
+      status: t.status || 'wait', deleted: !!t.deletedAt, startDate: kstToday(base), data: t };
+  });
+  return { items, remaining: Math.max(0, need.length - items.length), already: docs.length - need.length };
+}
+export async function migrateStartPreview(db, nowMs = Date.now()) {
+  const [docs, rules] = await Promise.all([db.list('todos'), loadRules(db)]);
+  const p = startPlan(docs, nowMs);
+  // 채운 뒤 어느 칸으로 가는지 같이 보여 준다
+  const items = p.items.map(i => {
+    const after = bucket(Object.assign({}, i.data, { startDate: i.startDate }), rules, nowMs);
+    return { label: i.label, text: i.text, companyName: i.companyName, status: i.status, deleted: i.deleted, startDate: i.startDate, col: after.col, reason: after.reason };
+  });
+  return { preview: true, count: items.length, remaining: p.remaining, already: p.already, items };
+}
+export async function migrateStartApply(ctx) {
+  const { db, actor, nowMs = Date.now() } = ctx;
+  return db.transaction(async (tx) => {
+    const p = startPlan(await tx.query('todos', [], {}), nowMs);
+    if (!p.items.length) return { applied: 0, remaining: 0 };
+    p.items.forEach(i => tx.update(i.path, { startDate: i.startDate }));   // updatedAt·statusAt은 그대로 (내용이 바뀐 게 아님)
+    tx.create(activityPath(nowMs), {
+      at: nowMs, app: 'todo', ref: 'MIGRATE', no: 0, action: 'migrate',
+      summary: actor.name + ' · 할 일 ' + p.items.length + '건에 시작일(등록한 날) 채움',
+      by: actor.name, via: actor.via, email: actor.email || '', bizno: '', changes: {},
+    });
+    console.log('[sg-todo 시작일 채우기]', p.items.length + '건', p.items.map(i => i.label + '=' + i.startDate).join(', '));
+    return { applied: p.items.length, remaining: p.remaining };
   });
 }
 
