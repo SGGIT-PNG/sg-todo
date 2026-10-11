@@ -395,3 +395,16 @@ test('제안 업무 — 날짜는 사람이 넣을 때만, 와도 제안 칸에 
   assert.equal(db.store.get('todos/T-0005').startDate, '2026-10-08');
 });
 
+
+test('업무 분야(중분류) — 이름으로 와도 id로', async () => {
+  assert.equal(core.normCategory('정책자금'), 'policy');
+  assert.equal(core.normCategory('벤처'), 'ven');
+  assert.equal(core.normCategory('메인비즈'), 'ven');
+  assert.equal(core.normCategory('ISO'), 'iso');
+  assert.equal(core.normCategory('기타'), 'etc');
+  assert.equal(core.normCategory('fin'), 'fin');
+  assert.equal(core.normCategory('우리만의분야'), '우리만의분야');   // 모르는 말은 그대로
+  const db = seed();
+  await createTodo(ctxOf(db), { text: '중진공 서류', category: '정책자금' });
+  assert.equal(db.store.get('todos/T-0001').category, 'policy');
+});

@@ -76,6 +76,8 @@ main{max-width:1180px;margin:0 auto;padding:14px 16px 80px;display:grid;grid-tem
 .sec.c-ing>h2{border-left:4px solid var(--ing)}
 .sec.c-todo>h2{border-left:4px solid var(--todo)}
 .sec.c-done>h2,.sec.c-done summary{border-left:4px solid var(--ok)}
+.subhd{display:flex;align-items:center;gap:8px;padding:6px 12px 4px;font-size:12px;font-weight:700;color:var(--text2);background:#F8FAFC;border-bottom:1px solid var(--border)}
+.subhd span{font-weight:400;color:var(--text4)}
 .task-head{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px}
 .task-head .t{font-size:15px;font-weight:600;word-break:break-word}
 .task-head .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;font-size:12px;color:var(--text3)}
@@ -191,7 +193,7 @@ const app = initializeApp({
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-const CATS = { policy:'💰 정책자금', support:'🏆 지원사업', ven:'🚀 벤처·이노비즈', lab:'🔬 연구소', pat:'💡 특허·지재', iso:'🏅 ISO', fund:'🏦 자금조달', confirm:'📜 확인서', fin:'📊 재무', etc:'📋 기타·행정' };
+const CATS = core.CAT_LABEL;   // 업무 분야(중분류) — core.js CATEGORIES 한 곳
 const SRC = { manual:'손 입력', chat:'채팅', voice:'음성', cert:'인증 갱신', iso:'ISO', annual:'연간신고', lead:'잠재고객', card:'업체카드', secretary:'비서', repeat:'반복' };
 const VIEWS = [['today','할 일'],['company','기업별'],['week','주간'],['done','완료·휴지통'],['admin','관리']];
 const LS = { me:'sgtodo_me', view:'sgtodo_view' };
@@ -305,7 +307,7 @@ const sortIdea = (a, b) => ((b.priority === 'high') - (a.priority === 'high')) |
 const sortDone = (a, b) => (b.doneAt || b.updatedAt || 0) - (a.doneAt || a.updatedAt || 0);
 const TONE = { red: 'hi', amber: 'am', wait: 'wt', plain: '', mute: 'mu' };
 
-function rowHtml(t) {
+function rowHtml(t, _i, noCat) {   // noCat: 분야별로 묶인 곳에서는 분야 칩을 빼고 보여 줌
   const b = t._b || core.bucket(t, rules, now());
   const id = esc(t._id), numbered = !!t.no;
   const done = b.col === 'done', trash = b.col === 'trash';
@@ -319,7 +321,7 @@ function rowHtml(t) {
   if (t.companyName) chips.push('<span class="chip co">🏢 ' + esc(shortCo(t.companyName)) + '</span>');
   (b.tags || []).forEach(x => chips.push('<span class="chip ' + (TONE[x.tone] || '') + '">' + esc(x.t) + '</span>'));
   if (t.kind && core.KIND_LABEL[t.kind]) chips.push('<span class="chip">' + core.KIND_LABEL[t.kind] + '</span>');
-  if (t.category && CATS[t.category]) chips.push('<span class="chip">' + CATS[t.category] + '</span>');
+  if (!noCat && t.category && CATS[t.category]) chips.push('<span class="chip">' + CATS[t.category] + '</span>');
   if (t.repeat && t.repeat.every) chips.push('<span class="chip">🔁 ' + ({ week:'매주', month:'매월', year:'매년' })[t.repeat.every] + '</span>');
   let acts = '';
   if (!numbered) acts = '<span class="chip" title="관리 → 번호 붙이기 후 쓸 수 있습니다">번호 없음</span>';
@@ -343,8 +345,22 @@ function rowHtml(t) {
       + (t.createdBy ? '<span style="color:var(--text4)">· ' + esc(t.createdBy) + '</span>' : '') + '</div>'
     + '</div><div class="acts">' + acts + '</div></div>';
 }
-function section(title, sub, list, open = true, cls = '') {
-  const inner = list.length ? list.map(rowHtml).join('') : '<div class="empty">없습니다</div>';
+// 칸 안을 업무 분야(중분류)로 묶는다 — 긴급(★) 묶음, 빨간 표시 묶음이 위, 나머지는 분야 순서. 묶음 안 순서는 그대로
+const CAT_ORDER = Object.fromEntries(core.CATEGORIES.map((c, i) => [c[0], i]));
+function groupedRows(list) {
+  if (!list.length) return '<div class="empty">없습니다</div>';
+  const groups = new Map();
+  list.forEach(t => { const k = CATS[t.category] ? t.category : (t.category ? '_other' : '_none'); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
+  const hot = k => groups.get(k).some(t => t.priority === 'high') ? 2 : groups.get(k).some(t => t._b && t._b.alert) ? 1 : 0;   // 긴급 묶음 → 빨간 표시 묶음 → 나머지
+  const ord = k => k === '_other' ? 90 : k === '_none' ? 99 : CAT_ORDER[k];
+  return [...groups.keys()].sort((a, b) => hot(b) - hot(a) || ord(a) - ord(b)).map(k => {
+    const arr = groups.get(k);
+    const name = k === '_none' ? '미분류' : k === '_other' ? '기타 분야' : CATS[k];
+    return '<div class="subhd">' + esc(name) + '<span>' + arr.length + '</span></div>' + arr.map(t => rowHtml(t, 0, true)).join('');
+  }).join('');
+}
+function section(title, sub, list, open = true, cls = '', grouped = false) {
+  const inner = !list.length ? '<div class="empty">없습니다</div>' : grouped ? groupedRows(list) : list.map(rowHtml).join('');
   if (!open) return '<div class="sec ' + cls + '"><details><summary>' + title + ' (' + list.length + ')' + (sub ? ' — ' + sub : '') + '</summary>' + inner + '</details></div>';
   return '<div class="sec ' + cls + '"><h2>' + title + (sub ? ' <small>' + sub + '</small>' : '') + '<span class="cnt">' + list.length + '</span></h2>' + inner + '</div>';
 }
@@ -377,9 +393,9 @@ function render() {
 
   if (view === 'today') {
     el.innerHTML = counts + warn
-      + section('🟠 하고 있는 업무', '시작일이 온 일 · 며칠째인지', g.ing, true, 'c-ing')
-      + section('🔵 해야 할 업무', '시작일이 아직 · 그날이 되면 위로 올라감', g.todo, true, 'c-todo')
-      + section('💡 제안 업무', '업체가 맡기기 전, 우리가 먼저 제안할 일 · 맡게 되면 「지금 시작」', g.idea, true, 'c-idea')
+      + section('🟠 하고 있는 업무', '시작일이 온 일 · 며칠째인지 · 업무 분야별', g.ing, true, 'c-ing', true)
+      + section('🔵 해야 할 업무', '시작일이 아직 · 그날이 되면 위로 올라감', g.todo, true, 'c-todo', true)
+      + section('💡 제안 업무', '업체가 맡기기 전, 우리가 먼저 제안할 일 · 맡게 되면 「지금 시작」', g.idea, true, 'c-idea', true)
       + section('✅ 완료 업무', '최근 7일 · 전체는 「완료·휴지통」', recent, recent.length <= 8, 'c-done');
   } else if (view === 'company') {
     const open = all.filter(t => t._b.col === 'ing' || t._b.col === 'todo' || t._b.col === 'idea');   // 기업별에는 제안거리도 같이
