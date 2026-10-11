@@ -2,11 +2,13 @@
 // 쓰기 창구(Worker)와 할 일 웹 화면이 같은 규칙을 쓰도록 이 파일 하나에 모은다.
 // 설계: sgcrm/TODO_ARCHITECTURE.md §3
 
-export const STATUSES = ['wait', 'ing', 'waiting', 'done', 'cancel'];
-export const STATUS_LABEL = { wait: '진행', ing: '진행', waiting: '기다리는 중', done: '완료', cancel: '취소' };
-// 칸은 세 개 — 시작일이 오면 하고 있는 업무, 아직이면 해야 할 업무, 끝나면 완료 (2026-10-11 사장님 지시)
-export const COLS = ['ing', 'todo', 'done'];
-export const COL_LABEL = { ing: '하고 있는 업무', todo: '해야 할 업무', done: '완료 업무', trash: '휴지통' };
+export const STATUSES = ['wait', 'ing', 'waiting', 'idea', 'done', 'cancel'];
+export const STATUS_LABEL = { wait: '진행', ing: '진행', waiting: '기다리는 중', idea: '제안', done: '완료', cancel: '취소' };
+// 칸 — 시작일이 오면 하고 있는 업무, 아직이면 해야 할 업무, 끝나면 완료 (2026-10-11 사장님 지시)
+//   + 제안 업무(status idea): 업체와 상관없이 우리가 먼저 제안하려는 일. 시작일과 상관없이 이 칸에 머물고,
+//     실제로 맡으면(status ing/wait) 하고 있는·해야 할 업무로 옮겨 간다
+export const COLS = ['ing', 'todo', 'idea', 'done'];
+export const COL_LABEL = { ing: '하고 있는 업무', todo: '해야 할 업무', idea: '제안 업무', done: '완료 업무', trash: '휴지통' };
 export const KINDS = ['call', 'doc', 'apply', 'visit', 'chase', 'internal'];
 export const KIND_LABEL = { call: '전화', doc: '서류', apply: '신청', visit: '방문', chase: '독촉', internal: '내부' };
 export const SOURCES = ['manual', 'chat', 'voice', 'cert', 'iso', 'annual', 'lead', 'card', 'secretary', 'repeat'];
@@ -237,6 +239,10 @@ export function applyChange(old, upd, actor, nowMs = Date.now()) {
     if (next.status === 'ing' && !('startDate' in upd) && old && old.startDate && old.startDate > today) {
       next.startDate = today; changes.startDate = [old.startDate, today];
     }
+    // 제안 → 실제 업무: 시작일을 따로 주지 않으면 오늘부터 (제안으로 묵힌 날은 「N일째」에 넣지 않는다)
+    if (old && old.status === 'idea' && ['wait', 'ing', 'waiting'].includes(next.status) && !('startDate' in upd) && (old.startDate || '') !== today) {
+      next.startDate = today; changes.startDate = [old.startDate || null, today];
+    }
   }
   if (TOUCH_FIELDS.some(k => k in changes)) next.statusAt = nowMs;
   next.updatedAt = nowMs;
@@ -278,6 +284,12 @@ export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
   const start = startOf(t, nowMs);
   const due = t.dueDate || '';
   const dleft = due ? daysBetween(today, due) : null;
+  if (t.status === 'idea') {   // 제안 업무 — 날짜로 압박하지 않는다(빨간 표시 없음). 얼마나 묵었는지만
+    const age = t.createdAt ? daysBetween(kstToday(t.createdAt), today) : 0;
+    if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });
+    if (due) tags.push({ t: '제안 목표 ' + due.slice(5).replace('-', '/'), tone: 'plain' });
+    return { col: 'idea', days: age, alert: false, tags, reason: [age === 0 ? '오늘 등록' : '등록 ' + age + '일 전'].concat(tags.map(x => x.t)).join(' · ') };
+  }
   if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });
   if (t.status === 'waiting') tags.push({ t: '⏳ ' + (t.waitingFor || '기다리는 중'), tone: 'wait' });
   let alert = false;
@@ -302,7 +314,7 @@ export function summarize(action, todo, changes, actorName) {
   const verbs = { create: '추가', complete: '완료', delete: '삭제(휴지통)', restore: '되살림', auto: '자동 추가' };
   if (verbs[action]) return who + ' · ' + head + ' → ' + verbs[action];
   const parts = Object.entries(changes || {}).map(([k, [, to]]) => {
-    if (k === 'status') return STATUS_LABEL[to] || to;
+    if (k === 'status') return (changes.status[0] === 'idea' && to !== 'idea' ? '제안 → ' : '') + (STATUS_LABEL[to] || to);
     if (k === 'dueDate') return to ? '마감 ' + to : '마감 없앰';
     if (k === 'startDate') return '시작 ' + to;
     if (k === 'doneAt') return to ? '완료일 ' + kstToday(to) : '완료일 지움';

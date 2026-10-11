@@ -205,9 +205,14 @@ export function sortIng(a, b) {
 export function sortTodo(a, b) {
   return a.startDate.localeCompare(b.startDate) || ((b.priority === 'high') - (a.priority === 'high')) || ((a.no || 0) - (b.no || 0));
 }
-const COL_ORDER = { ing: 0, todo: 1, done: 2, trash: 3 };
+// 제안 업무 정렬: 긴급 → 제안 목표일 가까운 순 → 오래 묵은 순
+export function sortIdea(a, b) {
+  return ((b.priority === 'high') - (a.priority === 'high')) || (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || (b.days - a.days) || ((a.no || 0) - (b.no || 0));
+}
+const COL_ORDER = { ing: 0, todo: 1, idea: 2, done: 3, trash: 4 };
 const VIEW_ALIAS = { today: 'open', missed: 'alert', recent_done: 'done' };   // 예전 이름도 받는다
-//   view: ing(하고 있는 업무) | todo(해야 할 업무) | done(완료, 최근 순) | open(ing+todo) | alert(빨간 표시) | waiting(기다리는 중) | week(7일 안 마감) | trash
+//   view: ing(하고 있는 업무) | todo(해야 할 업무) | idea(제안 업무) | done(완료, 최근 순) | open(ing+todo) | all(ing+todo+idea)
+//         | alert(빨간 표시) | waiting(기다리는 중) | week(7일 안 마감) | trash
 export async function listTodos(db, { view = 'open', company, category, query, limit = 50 } = {}, nowMs = Date.now()) {
   view = VIEW_ALIAS[view] || view;
   const [docs, rules] = await Promise.all([db.list('todos'), loadRules(db)]);
@@ -217,6 +222,8 @@ export async function listTodos(db, { view = 'open', company, category, query, l
   const views = {
     ing: r => r.col === 'ing',
     todo: r => r.col === 'todo',
+    idea: r => r.col === 'idea',
+    all: r => live(r) || r.col === 'idea',
     done: r => r.col === 'done',
     open: live,
     alert: r => live(r) && r.alert,
@@ -230,7 +237,7 @@ export async function listTodos(db, { view = 'open', company, category, query, l
   if (category) rows = rows.filter(r => r.category === category);
   if (query) { const q = String(query).toLowerCase(); rows = rows.filter(r => (r.text + ' ' + r.memo + ' ' + r.companyName).toLowerCase().includes(q)); }
   if (view === 'done') rows.sort((a, b) => (b.doneDate || '').localeCompare(a.doneDate || '') || (b.no || 0) - (a.no || 0));
-  else rows.sort((a, b) => COL_ORDER[a.col] - COL_ORDER[b.col] || (a.col === 'todo' ? sortTodo(a, b) : sortIng(a, b)));
+  else rows.sort((a, b) => COL_ORDER[a.col] - COL_ORDER[b.col] || (a.col === 'todo' ? sortTodo(a, b) : a.col === 'idea' ? sortIdea(a, b) : sortIng(a, b)));
   return { view, total: rows.length, items: rows.slice(0, Math.max(1, Math.min(200, limit))) };
 }
 function addDaysStr(ds, n) { const d = new Date(ds + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }

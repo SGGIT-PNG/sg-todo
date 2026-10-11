@@ -336,3 +336,27 @@ test('드라이브 스크립트 ingest — 채팅 출처·작성자 이름', asy
   const chk = await handle(new Request('https://x/api/ingest', { method: 'POST', headers: { 'x-api-key': 'k-test' }, body: JSON.stringify({ source: 'voice' }) }), ENV, { db, nowMs: NOW });
   assert.equal(chk.status, 400); assert.match((await chk.json()).error, /sourceRef/);
 });
+
+test('제안 업무 — 시작일과 상관없이 제안 칸, 맡으면 오늘부터 하고 있는 업무', async () => {
+  const db = seed();
+  await createTodo(ctxOf(db), { text: 'ISO 인증 제안', company: '하이퍼다인', status: 'idea', due: '10/30' });
+  let t = db.store.get('todos/T-0001');
+  assert.equal(t.status, 'idea');
+  const later = NOW + 20 * DAY;
+  let b = core.bucket(t, core.RULES_DEFAULT, later);
+  assert.equal(b.col, 'idea'); assert.equal(b.alert, false); assert.equal(b.reason, '등록 20일 전 · 제안 목표 10/30');   // 목표일이 지나도 빨간 표시 없음
+  assert.equal((await listTodos(db, { view: 'open' }, later)).total, 0);
+  assert.equal((await listTodos(db, { view: 'idea' }, later)).total, 1);
+  assert.equal((await listTodos(db, { view: 'all', company: '하이퍼다인' }, later)).total, 1);
+  // 맡게 됨 → 시작일 = 그날(제안으로 묵힌 날은 안 셈)
+  const r = await updateTodo(ctxOf(db, '정석진', 'web', later), 'T-0001', { status: 'ing' });
+  t = db.store.get('todos/T-0001');
+  assert.equal(t.startDate, '2026-10-28');
+  b = core.bucket(t, core.RULES_DEFAULT, later);
+  assert.equal(b.col, 'ing'); assert.equal(b.days, 1);
+  assert.match(acts(db).at(-1).summary, /제안 → 진행/); assert.ok(r.changes.startDate);
+  // 날짜를 정해 맡기 → 해야 할 업무
+  await createTodo(ctxOf(db), { text: '연구소 설립 제안', status: 'idea' });
+  await updateTodo(ctxOf(db), 'T-0002', { status: 'wait', start: '10/20' });
+  assert.equal(core.bucket(db.store.get('todos/T-0002'), core.RULES_DEFAULT, NOW).col, 'todo');
+});
