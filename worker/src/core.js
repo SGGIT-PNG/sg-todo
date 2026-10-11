@@ -13,6 +13,24 @@ export const COLS = ['ing', 'todo', 'idea', 'done'];
 export const COL_LABEL = { ing: '하고 있는 업무', todo: '해야 할 업무', idea: '제안 업무', done: '완료 업무', trash: '휴지통' };
 export const KINDS = ['call', 'doc', 'apply', 'visit', 'chase', 'internal'];
 export const KIND_LABEL = { call: '전화', doc: '서류', apply: '신청', visit: '방문', chase: '독촉', internal: '내부' };
+// 업무 분야(중분류) — SGCRM DEFAULT_CAT_META와 같은 id. 화면은 칸 안을 이 순서로 묶는다 (2026-10-12)
+export const CATEGORIES = [
+  ['policy', '💰', '정책자금'], ['support', '🏆', '지원사업'], ['ven', '🚀', '벤처·이노비즈·메인비즈'], ['lab', '🔬', '기업부설연구소'],
+  ['pat', '💡', '특허·지재'], ['iso', '🏅', 'ISO 인증'], ['fund', '🏦', '일반자금조달'], ['confirm', '📜', '확인서'],
+  ['fin', '📊', '재무'], ['etc', '📋', '기타·행정'],
+];
+export const CAT_LABEL = Object.fromEntries(CATEGORIES.map(([id, ic, nm]) => [id, ic + ' ' + nm]));
+// 분야 말 → id (「정책자금」「벤처」「ISO」처럼 이름으로 와도 알아듣는다. 모르는 말은 그대로 둔다)
+export function normCategory(v) {
+  const s = String(v ?? '').trim(); if (!s) return '';
+  if (CAT_LABEL[s]) return s;
+  const k = s.replace(/\s/g, '').toLowerCase();
+  const hit = CATEGORIES.find(([id, , nm]) => nm.replace(/\s/g, '').toLowerCase() === k)
+    || CATEGORIES.find(([id, , nm]) => nm.replace(/\s/g, '').toLowerCase().split('·').some(p => p && (k === p || k.startsWith(p))));
+  if (hit) return hit[0];
+  const alias = { 이노비즈: 'ven', 메인비즈: 'ven', 벤처: 'ven', 연구소: 'lab', 특허: 'pat', iso: 'iso', 자금조달: 'fund', 자금: 'fund', 기타: 'etc', 행정: 'etc', 서류: 'etc' };
+  return alias[k] || s;
+}
 export const SOURCES = ['manual', 'chat', 'voice', 'cert', 'iso', 'annual', 'lead', 'card', 'secretary', 'repeat'];
 export const AUTHORS = ['정석진', '김학미', '공동'];
 export const RULES_DEFAULT = { stallDays: 14, soonDays: 3, horizonDays: 30, leadDays: 14 };
@@ -216,6 +234,7 @@ export function cleanPatch(patch, { nowMs = Date.now(), creating = false } = {})
   for (const k of ['waitingFor', 'category', 'assignee', 'memo', 'tag', 'bizno', 'companyName']) {
     if (k in patch) out[k] = String(patch[k] ?? '').trim();
   }
+  if ('category' in out) out.category = normCategory(out.category);
   if ('memo' in out && out.memo.length > 2000) throw new RuleError('메모가 너무 깁니다(2000자 이하)');
   if ('repeat' in patch) out.repeat = normRepeat(patch.repeat);
   return out;

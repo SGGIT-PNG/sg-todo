@@ -5,7 +5,7 @@
 import {
   createTodo, updateTodo, completeTodo, deleteTodo, restoreTodo, listTodos, getTodo, changesSince, loadCompanies, NotFoundError,
 } from './todos.js';
-import { RuleError, AUTHORS, STATUSES, STATUS_LABEL, KINDS, kstToday, resolveCompany, COL_LABEL } from './core.js';
+import { RuleError, AUTHORS, STATUSES, STATUS_LABEL, KINDS, kstToday, resolveCompany, COL_LABEL, CATEGORIES, CAT_LABEL } from './core.js';
 import { AuthError } from './auth.js';
 
 const PROTOCOLS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
@@ -13,6 +13,7 @@ const SERVER_INFO = { name: 'sg-todo', title: 'SG솔루션 할 일', version: '1
 const INSTRUCTIONS = 'SG솔루션 할 일(T-번호) 도구. 할 일을 넣거나 바꾸기 전에 누가 하는지(정석진·김학미·공동)를 author로 넣는다 — '
   + '대화나 프로젝트 지침에 이름이 없으면 먼저 물어본다. 기업은 이름이나 사업자번호로 company에 넣고, 후보가 여럿이라고 하면 사용자에게 골라 달라고 한다. '
   + '번호는 T-0123 형식. 삭제는 휴지통(30일 안에 todo_restore로 되살림). 「안 하기로 한 일」은 삭제가 아니라 status=cancel. '
+  + '할 일을 넣을 때 category(업무 분야)를 내용에 맞게 하나 고른다(정책자금·지원사업·벤처·연구소·특허·ISO·자금조달·확인서·재무·기타). 화면이 칸 안을 분야별로 묶는다. '
   + '할 일은 세 칸 — 하고 있는 업무(시작일이 오늘이거나 지남)·해야 할 업무(시작일이 앞날)·완료 업무. 시작일 기본은 오늘이고, 「내일부터」「다음 주 월요일부터」처럼 말하면 start에 그 날짜를 넣는다. '
   + '「어제 끝냈어」처럼 끝낸 날을 말하면 todo_complete의 date에 넣는다. '
   + '제안 업무 = 업체가 맡기지 않았지만 우리가 먼저 제안하려는 일(「하이퍼다인 ISO 인증 제안 예정」) → todo_add status=idea. 제안 업무의 날짜(start 시작일·due 종료일)는 사용자가 말했을 때만 넣고, 먼저 권하지 않는다. 날짜가 있어도 제안 칸에 머문다(시작일이 와도 옮기지 않고, 종료일이 지나도 빨간 표시 없음). 목록은 todo_list view=idea. '
@@ -42,7 +43,7 @@ const FIELDS = {
   status: { type: 'string', enum: STATUSES, description: '보통은 넣지 않는다(칸은 시작일로 정해짐). idea = 제안 업무(아직 맡지 않은, 우리가 먼저 제안할 일 — 날짜와 상관없이 제안 칸) · waiting = 기다리는 중 꼬리표(누구를·무엇을은 waitingFor) · ing = 지금 시작(시작일이 앞날이면 오늘로 당김) · wait = 기다림 꼬리표 떼기·다시 열기 · done 완료 · cancel 취소(안 하기로 함)' },
   waitingFor: { type: 'string', description: '기다리는 대상 (예: 「고객 서류 회신」)' },
   kind: { type: 'string', enum: ['', ...KINDS], description: 'call 전화 · doc 서류 · apply 신청 · visit 방문 · chase 독촉 · internal 내부' },
-  category: { type: 'string', description: '분류 (예: 지원사업, ISO, 인증)' },
+  category: { type: 'string', enum: ['', ...CATEGORIES.map(c => c[0])], description: '업무 분야(중분류 — 화면이 이걸로 묶는다). 넣을 때 내용을 보고 하나 고른다: ' + CATEGORIES.map(([id, , nm]) => id + ' ' + nm).join(' · ') + '. 업체 일반 서류·견적·연락 등은 etc' },
   priority: { type: 'string', enum: ['', 'high'], description: 'high = 긴급(★, 하고 있는 업무 맨 위)' },
   memo: { type: 'string', description: '메모 전체 (바꾸면 덮어씀 — 덧붙일 때는 memoAppend)' },
   repeat: REPEAT,
@@ -121,12 +122,13 @@ export const TOOLS = [
 ];
 
 // ── 보여 주는 글 ──
+const catTxt = (c) => c ? ' {' + (CAT_LABEL[c] || c) + '}' : '';
 const SHORT = { ing: '하는 중', todo: '할 일', idea: '💡 제안', done: '완료', trash: '휴지통' };
 const md = (ds) => ds ? ds.slice(5).replace('-', '/') : '';
 function line(r) {
   const tag = SHORT[r.col] + (r.reason ? ' · ' + r.reason : '') + (r.alert ? ' 🔴' : '');
   return r.label + ' [' + tag + '] ' + (r.companyName ? r.companyName + ' — ' : '') + r.text
-    + (r.col === 'todo' ? ' (' + md(r.startDate) + ' 시작)' : '') + (r.createdBy ? ' · ' + r.createdBy : '');
+    + (r.col === 'todo' ? ' (' + md(r.startDate) + ' 시작)' : '') + catTxt(r.category) + (r.createdBy ? ' · ' + r.createdBy : '');
 }
 const kstTime = (ms) => new Date(ms + 9 * 3600000).toISOString().slice(5, 16).replace('T', ' ').replace('-', '/');
 const FIELD_LABEL = { text: '내용', status: '상태', startDate: '시작일', dueDate: '마감', waitingFor: '기다리는 대상', bizno: '기업', companyName: '기업명', category: '분류', kind: '종류', priority: '중요', memo: '메모', repeat: '반복' };

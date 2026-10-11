@@ -28,6 +28,7 @@ SG솔루션 **할 일 프로그램**. 데이터는 SGCRM Firebase(`sg-crm-f9adc`
 ## 데이터 규칙 요약
 - 번호 `no`(정수) → 표시 `T-0123`. 다음 번호는 `app_state/todo_seq.last` (트랜잭션)
 - 상태 `wait`·`ing`·`waiting`·`idea`·`done`·`cancel`. `idea`(제안 업무)는 우리 아이디어 목록 — **시작일·종료일(마감)은 사람이 넣을 때만 저장·표시**(등록한 날로 채우지 않음, 시작일이 와도 제안 칸에 머묾, 종료일 지나도 빨간 표시 없이 회색 「종료일 지남」 — 2026-10-12 A안). 완료 시 `doneAt`, 다시 열면 지움. 상태·마감·메모·기다리는 대상이 바뀌면 `statusAt`
+- 업무 분야 `category`(중분류) = `core.js` `CATEGORIES`(SGCRM `DEFAULT_CAT_META`와 같은 id). 웹·CRM·TV가 칸 안을 분야별로 묶는다(긴급 묶음 → 빨간 표시 묶음 → 분야 순서). 이름으로 와도 `normCategory`가 id로
 - 작성자: 공용 계정이라 **화면/채팅이 고른 이름**(정석진·김학미·공동)을 `X-SG-User`로 받는다. 비면 쓰기 거절
 - 삭제 = 휴지통(`deletedAt`), 30일 뒤 완전 삭제(매일 06:00 예약 작업)
 - ⚠️ Cloudflare 무료 요금제 = 요청당 외부 호출 **50번** 제한 → 여러 건 쓰기는 트랜잭션 하나로 묶는다(`createMany`)
