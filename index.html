@@ -521,17 +521,17 @@ function parseQuick(raw) {
     text = (text.slice(0, m.index) + ' ' + text.slice(m.index + m[0].length)).replace(/\s{2,}/g, ' ').trim();
   }
   const co = core.findCompanyInText(text, companies);
-  if (idea) { due = due || start; start = ''; }   // 제안 업무의 날짜 = 제안 목표일
+  if (idea) { due = ''; start = ''; }   // 제안 업무는 날짜가 없다(우리 아이디어 목록)
   return { text: text || String(raw).trim(), start, due, co, idea };
 }
 function quickHint() {
   const v = document.getElementById('quick').value, el = document.getElementById('quick-hint');
-  if (!v.trim()) { el.textContent = 'Enter로 저장. 시작일은 오늘 — 「내일부터」「10/20」이면 그날 시작(해야 할 업무), 「10/30까지」는 마감. 맨 앞에 「제안」을 쓰면 💡 제안 업무. 기업명은 알아서 연결합니다.'; return; }
+  if (!v.trim()) { el.textContent = 'Enter로 저장. 시작일은 오늘 — 「내일부터」「10/20」이면 그날 시작(해야 할 업무), 「10/30까지」는 마감. 맨 앞에 「제안」을 쓰면 💡 제안 업무(날짜 없음). 기업명은 알아서 연결합니다.'; return; }
   const p = parseQuick(v);
   const today = core.kstToday();
   el.innerHTML = '→ ' + (p.co ? '🏢 <b>' + esc(p.co.name) + '</b>' : '기업 없음')
     + ' · ' + (p.idea ? '💡 <b>제안 업무</b>' : p.start && p.start > today ? '🔵 해야 할 업무 <b>' + p.start + ' 시작</b>' : '🟠 하고 있는 업무 (오늘 시작)')
-    + (p.due ? (p.idea ? ' · 제안 목표 <b>' : ' · ⏰ 마감 <b>') + p.due + '</b>' : '');
+    + (p.due ? ' · ⏰ 마감 <b>' + p.due + '</b>' : '');
 }
 async function quickAdd() {
   const inp = document.getElementById('quick'); const raw = inp.value.trim(); if (!raw) return;
@@ -557,12 +557,12 @@ function openEdit(id) {
     + '<div class="fg"><label>할 일</label><textarea id="f-text" style="min-height:52px">' + v('text') + '</textarea></div>'
     + '<div class="fg"><label>기업 (목록에서 고르거나 이름을 적으세요 · 비워도 됨)</label><input id="f-co" list="co-list" value="' + esc(coValue(t)) + '" autocomplete="off">'
     + '<datalist id="co-list">' + companies.filter(c => c.active !== 'N').map(c => '<option value="' + esc(c.name + ' · ' + c.id) + '">').join('') + '</datalist></div>'
-    + '<div class="grid2">'
+    + '<div class="grid2' + (t && t.status === 'idea' ? ' hidden' : '') + '" id="f-dates">'
       + '<div class="fg"><label>시작일 — 이 날부터 「하고 있는 업무」</label><input type="date" id="f-start" value="' + esc(t ? core.startOf(t) : core.kstToday()) + '"></div>'
       + '<div class="fg"><label>마감 (선택)</label><input type="date" id="f-due" value="' + v('dueDate') + '"></div>'
     + '</div>'
     + '<div class="grid2">'
-      + '<div class="fg"><label>상태</label><select id="f-status" onchange="document.getElementById(\'f-wf\').closest(\'.fg\').classList.toggle(\'hidden\',this.value!==\'waiting\')">'
+      + '<div class="fg"><label>상태</label><select id="f-status" onchange="document.getElementById(\'f-wf\').closest(\'.fg\').classList.toggle(\'hidden\',this.value!==\'waiting\');document.getElementById(\'f-dates\').classList.toggle(\'hidden\',this.value===\'idea\')">'
         + opt([['wait', '진행'], ['waiting', '⏳ 기다리는 중'], ['idea', '💡 제안 (아직 안 맡음)']].concat(t ? [['done', '완료'], ['cancel', '취소(안 하기로 함)']] : []), t ? (t.status === 'ing' ? 'wait' : t.status) : 'wait') + '</select></div>'
       + '<div class="fg"><label>&nbsp;</label><label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--text)"><input type="checkbox" id="f-hi" style="width:auto"' + (t && t.priority === 'high' ? ' checked' : '') + '> <span style="color:#DC2626">★</span> 긴급</label></div>'
     + '</div>'

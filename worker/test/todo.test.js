@@ -108,9 +108,10 @@ test('시작일 채우기 — 미리보기·적용·두 번 돌려도 안전', a
     'todos/T-0001': { no: 1, text: '옛 할 일', status: 'wait', createdAt: Date.parse('2026-09-01T01:00:00Z'), dueDate: '2026-12-01' },
     'todos/T-0002': { no: 2, text: '밤에 넣은 일', status: 'ing', createdAt: Date.parse('2026-10-07T16:00:00Z') },   // 한국 10/8 01시
     'todos/T-0003': { no: 3, text: '이미 있음', status: 'wait', startDate: '2026-10-20', createdAt: 1 },
+    'todos/T-0004': { no: 4, text: '제안거리', status: 'idea', createdAt: 1 },   // 제안 업무는 날짜를 채우지 않는다
   });
   const pv = await migrateStartPreview(db, NOW);
-  assert.equal(pv.count, 2); assert.equal(pv.already, 1);
+  assert.equal(pv.count, 2); assert.equal(pv.already, 2);
   assert.deepEqual(pv.items.map(i => [i.label, i.startDate, i.col]), [['T-0001', '2026-09-01', 'ing'], ['T-0002', '2026-10-08', 'ing']]);
   assert.equal(pv.items[0].reason, '38일째 · 마감 D-54');
   assert.equal(db.store.get('todos/T-0001').startDate, undefined);       // 미리보기는 쓰지 않음
@@ -118,6 +119,7 @@ test('시작일 채우기 — 미리보기·적용·두 번 돌려도 안전', a
   assert.equal(r.applied, 2);
   assert.equal(db.store.get('todos/T-0001').startDate, '2026-09-01');
   assert.equal(db.store.get('todos/T-0003').startDate, '2026-10-20');
+  assert.equal(db.store.get('todos/T-0004').startDate, undefined);
   assert.equal((await migrateStartApply(ctxOf(db))).applied, 0);
 });
 
@@ -342,9 +344,14 @@ test('제안 업무 — 시작일과 상관없이 제안 칸, 맡으면 오늘�
   await createTodo(ctxOf(db), { text: 'ISO 인증 제안', company: '하이퍼다인', status: 'idea', due: '10/30' });
   let t = db.store.get('todos/T-0001');
   assert.equal(t.status, 'idea');
+  assert.equal(t.startDate, ''); assert.equal(t.dueDate, '');   // 제안 업무에는 날짜가 없다(넣어도 비움)
   const later = NOW + 20 * DAY;
   let b = core.bucket(t, core.RULES_DEFAULT, later);
-  assert.equal(b.col, 'idea'); assert.equal(b.alert, false); assert.equal(b.reason, '등록 20일 전 · 제안 목표 10/30');   // 목표일이 지나도 빨간 표시 없음
+  assert.equal(b.col, 'idea'); assert.equal(b.alert, false); assert.equal(b.reason, '등록 20일 전');
+  // 제안인 채로 날짜를 넣으려 해도 비워 둔다
+  await updateTodo(ctxOf(db), 'T-0001', { due: '11/5', start: '10/20' });
+  t = db.store.get('todos/T-0001');
+  assert.equal(t.startDate, ''); assert.equal(t.dueDate, '');
   assert.equal((await listTodos(db, { view: 'open' }, later)).total, 0);
   assert.equal((await listTodos(db, { view: 'idea' }, later)).total, 1);
   assert.equal((await listTodos(db, { view: 'all', company: '하이퍼다인' }, later)).total, 1);
@@ -359,4 +366,9 @@ test('제안 업무 — 시작일과 상관없이 제안 칸, 맡으면 오늘�
   await createTodo(ctxOf(db), { text: '연구소 설립 제안', status: 'idea' });
   await updateTodo(ctxOf(db), 'T-0002', { status: 'wait', start: '10/20' });
   assert.equal(core.bucket(db.store.get('todos/T-0002'), core.RULES_DEFAULT, NOW).col, 'todo');
+  // 보통 할 일을 제안으로 돌리면 날짜를 지운다
+  await createTodo(ctxOf(db), { text: '벤처 제안', start: '10/20', due: '10/30' });
+  await updateTodo(ctxOf(db), 'T-0003', { status: 'idea' });
+  const t3 = db.store.get('todos/T-0003');
+  assert.equal(t3.startDate, ''); assert.equal(t3.dueDate, ''); assert.equal(core.bucket(t3, core.RULES_DEFAULT, NOW).col, 'idea');
 });

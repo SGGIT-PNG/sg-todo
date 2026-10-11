@@ -318,7 +318,7 @@ export async function migrateApply(ctx) {
 // ── 시작일 채우기 (2026-10-11 세 칸 바꿈) ── 시작일이 없는 할 일에 「등록한 날」(createdAt, 한국 날짜)을 넣는다
 //   이미 시작일이 있는 문서는 건드리지 않는다 → 여러 번 돌려도 안전. 한 번에 최대 400건
 function startPlan(docs, nowMs) {
-  const need = docs.filter(d => !d.data.startDate)
+  const need = docs.filter(d => !d.data.startDate && d.data.status !== 'idea')   // 제안 업무는 날짜가 없는 게 정상
     .sort((a, b) => (Number(a.data.no) || 0) - (Number(b.data.no) || 0) || a.id.localeCompare(b.id));
   const items = need.slice(0, MIGRATE_MAX).map(d => {
     const t = d.data;

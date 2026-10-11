@@ -7,6 +7,7 @@ export const STATUS_LABEL = { wait: '진행', ing: '진행', waiting: '기다리
 // 칸 — 시작일이 오면 하고 있는 업무, 아직이면 해야 할 업무, 끝나면 완료 (2026-10-11 사장님 지시)
 //   + 제안 업무(status idea): 업체와 상관없이 우리가 먼저 제안하려는 일. 시작일과 상관없이 이 칸에 머물고,
 //     실제로 맡으면(status ing/wait) 하고 있는·해야 할 업무로 옮겨 간다
+//     제안은 업체와 진행하는 일이 아니라 우리 아이디어 목록이라 시작일·마감이 없다 (2026-10-12 사장님 지시) — 넣어도 비운다
 export const COLS = ['ing', 'todo', 'idea', 'done'];
 export const COL_LABEL = { ing: '하고 있는 업무', todo: '해야 할 업무', idea: '제안 업무', done: '완료 업무', trash: '휴지통' };
 export const KINDS = ['call', 'doc', 'apply', 'visit', 'chase', 'internal'];
@@ -224,6 +225,8 @@ export function cleanPatch(patch, { nowMs = Date.now(), creating = false } = {})
 export function applyChange(old, upd, actor, nowMs = Date.now()) {
   const next = {}; const changes = {};
   upd = Object.assign({}, upd);
+  // 제안 업무에는 날짜가 없다 — 제안으로 두거나 제안으로 바꾸면 시작일·마감을 비운다
+  if (('status' in upd ? upd.status : old && old.status) === 'idea') { upd.startDate = ''; upd.dueDate = ''; }
   if ('doneAt' in upd && old && old.doneAt && kstToday(old.doneAt) === kstToday(upd.doneAt)) delete upd.doneAt;   // 같은 날이면 그대로
   for (const [k, v] of Object.entries(upd)) {
     const before = old ? old[k] : undefined;
@@ -253,7 +256,8 @@ export function applyChange(old, upd, actor, nowMs = Date.now()) {
 // 새 할 일 문서
 export function newTodo(fields, { no, source, sourceRef, actor, nowMs = Date.now(), seriesId }) {
   const doc = Object.assign({ status: 'wait', dueDate: '' }, fields);
-  if (!doc.startDate) doc.startDate = kstToday(nowMs);   // 시작일 기본 = 등록한 날
+  if (doc.status === 'idea') { doc.startDate = ''; doc.dueDate = ''; }   // 제안 업무 = 날짜 없음
+  else if (!doc.startDate) doc.startDate = kstToday(nowMs);   // 시작일 기본 = 등록한 날
   doc.no = no;
   doc.source = source;
   if (sourceRef) doc.sourceRef = sourceRef;
@@ -287,7 +291,6 @@ export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
   if (t.status === 'idea') {   // 제안 업무 — 날짜로 압박하지 않는다(빨간 표시 없음). 얼마나 묵었는지만
     const age = t.createdAt ? daysBetween(kstToday(t.createdAt), today) : 0;
     if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });
-    if (due) tags.push({ t: '제안 목표 ' + due.slice(5).replace('-', '/'), tone: 'plain' });
     return { col: 'idea', days: age, alert: false, tags, reason: [age === 0 ? '오늘 등록' : '등록 ' + age + '일 전'].concat(tags.map(x => x.t)).join(' · ') };
   }
   if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });
