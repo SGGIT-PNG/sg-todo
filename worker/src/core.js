@@ -7,7 +7,8 @@ export const STATUS_LABEL = { wait: '진행', ing: '진행', waiting: '기다리
 // 칸 — 시작일이 오면 하고 있는 업무, 아직이면 해야 할 업무, 끝나면 완료 (2026-10-11 사장님 지시)
 //   + 제안 업무(status idea): 업체와 상관없이 우리가 먼저 제안하려는 일. 시작일과 상관없이 이 칸에 머물고,
 //     실제로 맡으면(status ing/wait) 하고 있는·해야 할 업무로 옮겨 간다
-//     제안은 업체와 진행하는 일이 아니라 우리 아이디어 목록이라 시작일·마감이 없다 (2026-10-12 사장님 지시) — 넣어도 비운다
+//     제안의 시작일·종료일(마감)은 사람이 넣을 때만 저장하고 보여 주기만 한다 (2026-10-12 사장님 지시 — A안)
+//     등록한 날로 저절로 채우지 않고, 날짜가 와도 제안 칸에 머물며, 종료일이 지나도 빨간 표시 없이 회색 「종료일 지남」
 export const COLS = ['ing', 'todo', 'idea', 'done'];
 export const COL_LABEL = { ing: '하고 있는 업무', todo: '해야 할 업무', idea: '제안 업무', done: '완료 업무', trash: '휴지통' };
 export const KINDS = ['call', 'doc', 'apply', 'visit', 'chase', 'internal'];
@@ -197,9 +198,9 @@ export function cleanPatch(patch, { nowMs = Date.now(), creating = false } = {})
   }
   const dueIn = 'due' in patch ? patch.due : patch.dueDate;
   if ('due' in patch || 'dueDate' in patch) out.dueDate = parseDue(dueIn ?? '', nowMs);
-  // 시작일 — 비우면 오늘. 이 날이 오면 「하고 있는 업무」로 옮겨 간다
+  // 시작일 — 이 날이 오면 「하고 있는 업무」로 옮겨 간다. 빈 값('')은 「비움」 — 제안 업무면 비워 두고, 아니면 applyChange·newTodo가 오늘로 채운다
   const startIn = 'start' in patch ? patch.start : patch.startDate;
-  if ('start' in patch || 'startDate' in patch) out.startDate = startIn === '' || startIn === null || startIn === undefined ? kstToday(nowMs) : parseDue(startIn, nowMs);
+  if ('start' in patch || 'startDate' in patch) out.startDate = startIn === '' || startIn === null || startIn === undefined ? '' : parseDue(startIn, nowMs);
   // 완료한 날 — 넣으면 완료로 바꾸고 그날을 완료일로
   if ('doneDate' in patch) {
     if (creating) throw new RuleError('새 할 일은 완료 상태로 만들 수 없습니다');
@@ -225,8 +226,11 @@ export function cleanPatch(patch, { nowMs = Date.now(), creating = false } = {})
 export function applyChange(old, upd, actor, nowMs = Date.now()) {
   const next = {}; const changes = {};
   upd = Object.assign({}, upd);
-  // 제안 업무에는 날짜가 없다 — 제안으로 두거나 제안으로 바꾸면 시작일·마감을 비운다
-  if (('status' in upd ? upd.status : old && old.status) === 'idea') { upd.startDate = ''; upd.dueDate = ''; }
+  const finalStatus = 'status' in upd ? upd.status : old && old.status;
+  // 제안 업무의 날짜는 사람이 넣은 것만 — 보통 할 일을 제안으로 돌릴 때 시작일을 함께 주지 않으면 비운다(등록한 날로 채워진 값일 수 있어서)
+  if (finalStatus === 'idea' && old && old.status !== 'idea' && !('startDate' in upd)) upd.startDate = '';
+  // 보통 할 일은 시작일이 꼭 있다 — 비우라고 오면 오늘
+  if (finalStatus !== 'idea' && 'startDate' in upd && !upd.startDate) upd.startDate = kstToday(nowMs);
   if ('doneAt' in upd && old && old.doneAt && kstToday(old.doneAt) === kstToday(upd.doneAt)) delete upd.doneAt;   // 같은 날이면 그대로
   for (const [k, v] of Object.entries(upd)) {
     const before = old ? old[k] : undefined;
@@ -242,9 +246,10 @@ export function applyChange(old, upd, actor, nowMs = Date.now()) {
     if (next.status === 'ing' && !('startDate' in upd) && old && old.startDate && old.startDate > today) {
       next.startDate = today; changes.startDate = [old.startDate, today];
     }
-    // 제안 → 실제 업무: 시작일을 따로 주지 않으면 오늘부터 (제안으로 묵힌 날은 「N일째」에 넣지 않는다)
-    if (old && old.status === 'idea' && ['wait', 'ing', 'waiting'].includes(next.status) && !('startDate' in upd) && (old.startDate || '') !== today) {
-      next.startDate = today; changes.startDate = [old.startDate || null, today];
+    // 제안 → 실제 업무: 시작일을 따로 주지 않으면 — 「지금 시작」(ing)은 오늘부터, 그 밖에는 제안에 적어 둔 시작일(없으면 오늘)
+    if (old && old.status === 'idea' && ['wait', 'ing', 'waiting'].includes(next.status) && !('startDate' in upd) && !('startDate' in next)) {
+      const s = next.status === 'ing' || !old.startDate ? today : old.startDate;
+      if ((old.startDate || '') !== s) { next.startDate = s; changes.startDate = [old.startDate || null, s]; }
     }
   }
   if (TOUCH_FIELDS.some(k => k in changes)) next.statusAt = nowMs;
@@ -256,7 +261,7 @@ export function applyChange(old, upd, actor, nowMs = Date.now()) {
 // 새 할 일 문서
 export function newTodo(fields, { no, source, sourceRef, actor, nowMs = Date.now(), seriesId }) {
   const doc = Object.assign({ status: 'wait', dueDate: '' }, fields);
-  if (doc.status === 'idea') { doc.startDate = ''; doc.dueDate = ''; }   // 제안 업무 = 날짜 없음
+  if (doc.status === 'idea') doc.startDate = doc.startDate || '';   // 제안 업무 — 사람이 넣은 날짜만 (등록한 날로 채우지 않음)
   else if (!doc.startDate) doc.startDate = kstToday(nowMs);   // 시작일 기본 = 등록한 날
   doc.no = no;
   doc.source = source;
@@ -272,9 +277,10 @@ export function newTodo(fields, { no, source, sourceRef, actor, nowMs = Date.now
 
 // ── 세 칸 계산 + 꼬리표 ── 칸은 시작일만 본다. 긴급·기다림·마감·오래 끈 일은 꼬리표(tags)
 //   돌려주는 값: {col: ing|todo|done|trash, days(시작 뒤 지난 날 / 시작까지 남은 날), alert(빨간 표시), tags:[{t, tone}], reason(한 줄 글)}
-//   tone: red 빨강 · amber 주황 · wait 기다림 · plain 보통
+//   tone: red 빨강 · amber 주황 · wait 기다림 · plain 보통 · mute 회색(제안 업무 종료일 지남)
 export function touchedAt(t) { return t.statusAt || t.createdAt || 0; }
 export function startOf(t, nowMs = Date.now()) {
+  if (t.status === 'idea') return t.startDate || '';   // 제안 업무는 시작일이 없을 수 있다
   return t.startDate || (t.createdAt ? kstToday(t.createdAt) : kstToday(nowMs));
 }
 export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
@@ -291,6 +297,9 @@ export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
   if (t.status === 'idea') {   // 제안 업무 — 날짜로 압박하지 않는다(빨간 표시 없음). 얼마나 묵었는지만
     const age = t.createdAt ? daysBetween(kstToday(t.createdAt), today) : 0;
     if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });
+    // 날짜는 보여 주기만 — 시작일이 와도 제안 칸 그대로, 종료일이 지나도 빨간 표시 없음
+    if (start) tags.push({ t: '시작 ' + start.slice(5).replace('-', '/'), tone: 'plain' });
+    if (due) tags.push(dleft < 0 ? { t: '종료일 지남', tone: 'mute' } : { t: '종료 ' + due.slice(5).replace('-', '/'), tone: 'plain' });
     return { col: 'idea', days: age, alert: false, tags, reason: [age === 0 ? '오늘 등록' : '등록 ' + age + '일 전'].concat(tags.map(x => x.t)).join(' · ') };
   }
   if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });

@@ -92,6 +92,7 @@ main{max-width:1180px;margin:0 auto;padding:14px 16px 80px;display:grid;grid-tem
 .chip.hi{background:#FEE2E2;border-color:#FECACA;color:#B91C1C}
 .chip.wt{background:#F5F3FF;border-color:#DDD6FE;color:#6D28D9}
 .chip.am{background:#FFF7ED;border-color:#FED7AA;color:#C2410C}
+.chip.mu{background:#F1F5F9;border-color:#E2E8F0;color:#94A3B8}
 .acts{display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
 @media (max-width:600px){.acts .btn.sm{padding:5px 9px}.row{flex-wrap:wrap}.acts{width:100%;justify-content:flex-start;padding-left:32px}}
 
@@ -302,7 +303,7 @@ const sortIng = (a, b) => ((b.priority === 'high') - (a.priority === 'high')) ||
 const sortTodo = (a, b) => a._start.localeCompare(b._start) || ((b.priority === 'high') - (a.priority === 'high')) || ((a.no || 0) - (b.no || 0));
 const sortIdea = (a, b) => ((b.priority === 'high') - (a.priority === 'high')) || (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || (b._b.days - a._b.days) || ((a.no || 0) - (b.no || 0));
 const sortDone = (a, b) => (b.doneAt || b.updatedAt || 0) - (a.doneAt || a.updatedAt || 0);
-const TONE = { red: 'hi', amber: 'am', wait: 'wt', plain: '' };
+const TONE = { red: 'hi', amber: 'am', wait: 'wt', plain: '', mute: 'mu' };
 
 function rowHtml(t) {
   const b = t._b || core.bucket(t, rules, now());
@@ -370,7 +371,7 @@ function render() {
     + '<div><b style="color:var(--ok)">' + recent.length + '</b><span>최근 7일 완료</span></div>'
     + '<div><b style="color:' + (alerts ? 'var(--danger)' : 'var(--text4)') + '">' + alerts + '</b><span>마감 지남·오래 끈 일</span></div></div>';
   const unnumbered = todos.filter(t => !t.no).length;
-  const noStart = todos.filter(t => t.no && !t.startDate && !t.deletedAt).length;
+  const noStart = todos.filter(t => t.no && !t.startDate && !t.deletedAt && t.status !== 'idea').length;   // 제안은 날짜가 없어도 정상
   const warn = (unnumbered ? '<div class="sec" style="border-color:#FDE68A;background:#FFFBEB"><div class="empty" style="color:#92400E">번호가 없는 옛 할 일이 ' + unnumbered + '건 있습니다. 이 할 일들은 <b>관리 → 번호 붙이기</b> 뒤에 완료·수정할 수 있습니다.</div></div>' : '')
     + (noStart ? '<div class="sec" style="border-color:#FDE68A;background:#FFFBEB"><div class="empty" style="color:#92400E">시작일이 비어 있는 할 일이 ' + noStart + '건 있습니다(지금은 등록한 날로 계산해 보여 줍니다). <b>관리 → 시작일 채우기</b>로 저장해 두세요.</div></div>' : '');
 
@@ -429,7 +430,7 @@ async function act(id, what) {
     if (what === 'reopen') { await api('PATCH', '/api/todos/' + L, { status: 'wait' }); toast(L + ' 다시 열림'); closeModal(); }
     else if (what === 'ing') { await api('PATCH', '/api/todos/' + L, { status: 'ing' }); toast(L + ' 하고 있는 업무로'); closeModal(); }
     else if (what === 'adopt') {   // 제안 → 날짜 정해 시작
-      const d = prompt('언제부터 시작하나요? (예: 10/20, 내일, +7 · 오늘이면 「오늘」)', '내일'); if (d === null) return;
+      const d = prompt('언제부터 시작하나요? (예: 10/20, 내일, +7 · 오늘이면 「오늘」)', t.startDate && t.startDate > core.kstToday() ? t.startDate : '내일'); if (d === null) return;
       const r = await api('PATCH', '/api/todos/' + L, { status: 'wait', start: d });
       toast(L + ' → ' + (r.todo.startDate > core.kstToday() ? '해야 할 업무 (' + md(r.todo.startDate) + ' 시작)' : '하고 있는 업무')); closeModal();
     }
@@ -521,17 +522,18 @@ function parseQuick(raw) {
     text = (text.slice(0, m.index) + ' ' + text.slice(m.index + m[0].length)).replace(/\s{2,}/g, ' ').trim();
   }
   const co = core.findCompanyInText(text, companies);
-  if (idea) { due = ''; start = ''; }   // 제안 업무는 날짜가 없다(우리 아이디어 목록)
+  // 제안 업무도 적은 날짜는 그대로(「11/2부터」 시작일 · 「10/30까지」 종료일) — 날짜가 없으면 비워 둔다
   return { text: text || String(raw).trim(), start, due, co, idea };
 }
 function quickHint() {
   const v = document.getElementById('quick').value, el = document.getElementById('quick-hint');
-  if (!v.trim()) { el.textContent = 'Enter로 저장. 시작일은 오늘 — 「내일부터」「10/20」이면 그날 시작(해야 할 업무), 「10/30까지」는 마감. 맨 앞에 「제안」을 쓰면 💡 제안 업무(날짜 없음). 기업명은 알아서 연결합니다.'; return; }
+  if (!v.trim()) { el.textContent = 'Enter로 저장. 시작일은 오늘 — 「내일부터」「10/20」이면 그날 시작(해야 할 업무), 「10/30까지」는 마감. 맨 앞에 「제안」을 쓰면 💡 제안 업무(날짜는 적었을 때만). 기업명은 알아서 연결합니다.'; return; }
   const p = parseQuick(v);
   const today = core.kstToday();
   el.innerHTML = '→ ' + (p.co ? '🏢 <b>' + esc(p.co.name) + '</b>' : '기업 없음')
     + ' · ' + (p.idea ? '💡 <b>제안 업무</b>' : p.start && p.start > today ? '🔵 해야 할 업무 <b>' + p.start + ' 시작</b>' : '🟠 하고 있는 업무 (오늘 시작)')
-    + (p.due ? ' · ⏰ 마감 <b>' + p.due + '</b>' : '');
+    + (p.idea && p.start ? ' · 시작 <b>' + p.start + '</b>' : '')
+    + (p.due ? (p.idea ? ' · 종료 <b>' : ' · ⏰ 마감 <b>') + p.due + '</b>' : '');
 }
 async function quickAdd() {
   const inp = document.getElementById('quick'); const raw = inp.value.trim(); if (!raw) return;
@@ -557,12 +559,12 @@ function openEdit(id) {
     + '<div class="fg"><label>할 일</label><textarea id="f-text" style="min-height:52px">' + v('text') + '</textarea></div>'
     + '<div class="fg"><label>기업 (목록에서 고르거나 이름을 적으세요 · 비워도 됨)</label><input id="f-co" list="co-list" value="' + esc(coValue(t)) + '" autocomplete="off">'
     + '<datalist id="co-list">' + companies.filter(c => c.active !== 'N').map(c => '<option value="' + esc(c.name + ' · ' + c.id) + '">').join('') + '</datalist></div>'
-    + '<div class="grid2' + (t && t.status === 'idea' ? ' hidden' : '') + '" id="f-dates">'
-      + '<div class="fg"><label>시작일 — 이 날부터 「하고 있는 업무」</label><input type="date" id="f-start" value="' + esc(t ? core.startOf(t) : core.kstToday()) + '"></div>'
-      + '<div class="fg"><label>마감 (선택)</label><input type="date" id="f-due" value="' + v('dueDate') + '"></div>'
+    + '<div class="grid2" id="f-dates">'
+      + '<div class="fg"><label id="f-start-l">' + dateLabels(t && t.status === 'idea')[0] + '</label><input type="date" id="f-start" oninput="this.dataset.touched=1" value="' + esc(t ? core.startOf(t) : core.kstToday()) + '"></div>'
+      + '<div class="fg"><label id="f-due-l">' + dateLabels(t && t.status === 'idea')[1] + '</label><input type="date" id="f-due" value="' + v('dueDate') + '"></div>'
     + '</div>'
     + '<div class="grid2">'
-      + '<div class="fg"><label>상태</label><select id="f-status" onchange="document.getElementById(\'f-wf\').closest(\'.fg\').classList.toggle(\'hidden\',this.value!==\'waiting\');document.getElementById(\'f-dates\').classList.toggle(\'hidden\',this.value===\'idea\')">'
+      + '<div class="fg"><label>상태</label><select id="f-status" onchange="fStatusChange(this.value)">'
         + opt([['wait', '진행'], ['waiting', '⏳ 기다리는 중'], ['idea', '💡 제안 (아직 안 맡음)']].concat(t ? [['done', '완료'], ['cancel', '취소(안 하기로 함)']] : []), t ? (t.status === 'ing' ? 'wait' : t.status) : 'wait') + '</select></div>'
       + '<div class="fg"><label>&nbsp;</label><label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--text)"><input type="checkbox" id="f-hi" style="width:auto"' + (t && t.priority === 'high' ? ' checked' : '') + '> <span style="color:#DC2626">★</span> 긴급</label></div>'
     + '</div>'
@@ -592,6 +594,17 @@ function openEdit(id) {
   }
   setTimeout(() => document.getElementById('f-text').focus(), 50);
 }
+// 고치기 창 날짜 칸 이름 — 제안 업무는 날짜를 보여 주기만 한다
+function dateLabels(idea) {
+  return idea ? ['시작일 (선택 · 와도 제안 칸 유지)', '종료일 (선택)'] : ['시작일 — 이 날부터 「하고 있는 업무」', '마감 (선택)'];
+}
+function fStatusChange(v) {
+  document.getElementById('f-wf').closest('.fg').classList.toggle('hidden', v !== 'waiting');
+  const l = dateLabels(v === 'idea');
+  document.getElementById('f-start-l').textContent = l[0]; document.getElementById('f-due-l').textContent = l[1];
+  const st = document.getElementById('f-start');
+  if (v === 'idea' && !st.dataset.touched) st.value = '';   // 제안으로 바꾸면 저절로 들어간 시작일은 비움 (사람이 넣은 것만)
+}
 function formValues() {
   const val = id => document.getElementById(id).value;
   const coRaw = val('f-co').trim(); const m = coRaw.match(/·\s*(\S+)\s*$/);
@@ -614,7 +627,7 @@ async function saveEdit(id) {
       const patch = {};
       for (const k of ['text', 'status', 'dueDate', 'waitingFor', 'kind', 'category', 'priority', 'memo']) if ((t[k] || '') !== (f[k] || '')) patch[k] = f[k];
       if (t.status === 'ing' && f.status === 'wait') delete patch.status;            // 진행(ing·wait)은 같은 칸
-      if (f.startDate && f.startDate !== core.startOf(t)) patch.startDate = f.startDate;
+      if (f.startDate !== core.startOf(t) && (f.startDate || f.status === 'idea')) patch.startDate = f.startDate;   // 제안은 시작일을 비울 수도 있다
       if (document.getElementById('f-co').value.trim() !== coValue(t)) patch.company = f.company;   // 기업 칸을 손댔을 때만
       if (JSON.stringify((t.repeat && t.repeat.every) || '') !== JSON.stringify((f.repeat && f.repeat.every) || '')) patch.repeat = f.repeat;
       if (!Object.keys(patch).length) { closeModal(); return; }
@@ -664,7 +677,7 @@ function renderAdmin() {
       + '</table>' + (migPreview.remaining ? '<p class="info">이번에 ' + migPreview.count + '건, 나머지 ' + migPreview.remaining + '건은 다시 누르면 이어서 붙입니다.</p>' : '') + '</div>'
       : '<div class="empty">번호를 붙일 할 일이 없습니다. (이미 번호 있음 ' + migPreview.alreadyNumbered + '건)</div>';
   }
-  const ns = todos.filter(t => !t.startDate).length;
+  const ns = todos.filter(t => !t.startDate && t.status !== 'idea').length;
   h += '</div><div class="sec"><h2>📅 시작일 채우기 (세 칸으로 바꾼 뒤 한 번)</h2><div style="padding:12px">'
     + '<p style="margin:0 0 10px;font-size:13px;color:var(--text2)">시작일이 없는 할 일 <b>' + ns + '건</b>에 <b>등록한 날</b>을 시작일로 넣습니다. 이미 시작일이 있는 할 일은 건드리지 않으므로 여러 번 눌러도 안전합니다. 넣은 뒤 어느 칸으로 가는지 미리보기에서 확인하세요.</p>'
     + '<button class="btn" onclick="stPrev()">① 미리보기</button> '
@@ -730,7 +743,7 @@ async function migApply() {
 }
 
 window.addEventListener('hashchange', () => { hashOpened = false; openFromHash(); });
-Object.assign(window, { openIdea, signIn, signOutNow, pickMe, setMe, setView, act, quickAdd, quickHint, openEdit, saveEdit, delTodo, closeModal, weekMove, migPrev, migApply, autoPrev, autoRun, openTask, setDoneDay, submitDone, stPrev, stApply });
+Object.assign(window, { fStatusChange, openIdea, signIn, signOutNow, pickMe, setMe, setView, act, quickAdd, quickHint, openEdit, saveEdit, delTodo, closeModal, weekMove, migPrev, migApply, autoPrev, autoRun, openTask, setDoneDay, submitDone, stPrev, stApply });
 </script>
 </body>
 </html>
