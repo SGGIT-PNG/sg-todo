@@ -3,7 +3,10 @@
 // 설계: sgcrm/TODO_ARCHITECTURE.md §3
 
 export const STATUSES = ['wait', 'ing', 'waiting', 'done', 'cancel'];
-export const STATUS_LABEL = { wait: '해야 할 일', ing: '하는 중', waiting: '기다리는 중', done: '완료', cancel: '취소' };
+export const STATUS_LABEL = { wait: '진행', ing: '진행', waiting: '기다리는 중', done: '완료', cancel: '취소' };
+// 칸은 세 개 — 시작일이 오면 하고 있는 업무, 아직이면 해야 할 업무, 끝나면 완료 (2026-10-11 사장님 지시)
+export const COLS = ['ing', 'todo', 'done'];
+export const COL_LABEL = { ing: '하고 있는 업무', todo: '해야 할 업무', done: '완료 업무', trash: '휴지통' };
 export const KINDS = ['call', 'doc', 'apply', 'visit', 'chase', 'internal'];
 export const KIND_LABEL = { call: '전화', doc: '서류', apply: '신청', visit: '방문', chase: '독촉', internal: '내부' };
 export const SOURCES = ['manual', 'chat', 'voice', 'cert', 'iso', 'annual', 'lead', 'card', 'secretary', 'repeat'];
@@ -12,10 +15,10 @@ export const RULES_DEFAULT = { stallDays: 14, soonDays: 3, horizonDays: 30, lead
 export const TRASH_DAYS = 30;
 
 // 사람이 바꿀 수 있는 칸 (그 외 no·createdAt·source 등은 창구만 정한다)
-export const EDITABLE = ['text', 'status', 'dueDate', 'waitingFor', 'bizno', 'companyName', 'category',
+export const EDITABLE = ['text', 'status', 'startDate', 'dueDate', 'waitingFor', 'bizno', 'companyName', 'category',
   'kind', 'priority', 'assignee', 'memo', 'tag', 'repeat'];
 // 바뀌면 「손댄 것」으로 보는 칸 — 멈춤 판정 기준 statusAt 갱신 (CRM 기존 규칙과 같음)
-const TOUCH_FIELDS = ['status', 'dueDate', 'memo', 'waitingFor'];
+const TOUCH_FIELDS = ['status', 'startDate', 'dueDate', 'memo', 'waitingFor'];
 
 export class RuleError extends Error {
   constructor(msg, extra) { super(msg); this.name = 'RuleError'; this.extra = extra || null; }
@@ -65,6 +68,39 @@ export function parseDue(v, nowMs = Date.now()) {
     }
   }
   throw new RuleError('날짜를 알아볼 수 없습니다: 「' + s + '」 (예: 2026-10-20, 10/20, 내일)');
+}
+
+// 완료한 날 말: 오늘 · 어제 · 그제 · -3(3일 전) · 10/14 · 2026-10-14 — 지난 날짜만 (앞날이면 거절)
+export function parseDoneDate(v, nowMs = Date.now()) {
+  const today = kstToday(nowMs);
+  if (v === undefined || v === null || String(v).trim() === '') return today;
+  const s = String(v).trim();
+  const rel = { '오늘': 0, '어제': 1, '그제': 2, '그저께': 2, '엊그제': 2, '내일': -1, '모레': -2 };   // 내일·모레는 아래에서 「앞날」로 거절
+  let d;
+  if (s in rel) d = addDays(today, -rel[s]);
+  else {
+    let m = s.match(/^-(\d{1,3})$/) || s.match(/^(\d{1,3})\s*일\s*전$/);
+    if (m) d = addDays(today, -Number(m[1]));
+    else {
+      m = s.match(/^(20\d{2})[-./]\s*(\d{1,2})[-./]\s*(\d{1,2})$/);
+      if (m) d = m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');
+      else {
+        m = s.match(/^(\d{1,2})\s*월\s*(\d{1,2})\s*일?$/) || s.match(/^(\d{1,2})\/(\d{1,2})$/);
+        if (m) {
+          const y = Number(today.slice(0, 4));
+          d = y + '-' + m[1].padStart(2, '0') + '-' + m[2].padStart(2, '0');
+          if (isDate(d) && d > today) d = (y - 1) + d.slice(4);   // 앞날 월/일이면 작년
+        }
+      }
+    }
+  }
+  if (!d || !isDate(d)) throw new RuleError('완료한 날을 알아볼 수 없습니다: 「' + s + '」 (예: 오늘, 어제, 10/14)');
+  if (d > today) throw new RuleError('완료한 날이 앞날입니다: ' + d);
+  return d;
+}
+// 완료한 날 → doneAt(ms). 오늘이면 지금 시각, 지난 날이면 그날 정오(한국)
+export function doneAtOf(ds, nowMs = Date.now()) {
+  return ds === kstToday(nowMs) ? nowMs : Date.parse(ds + 'T12:00:00+09:00');
 }
 
 // ── 반복 ── {every:'week'|'month'|'year', n:1, day?, month?}
@@ -143,7 +179,7 @@ export function cleanPatch(patch, { nowMs = Date.now(), creating = false } = {})
   if (!patch || typeof patch !== 'object') throw new RuleError('바꿀 내용이 없습니다');
   const out = {};
   for (const k of Object.keys(patch)) {
-    if (k === 'company' || k === 'memoAppend' || k === 'due') continue;   // 아래에서 따로 처리
+    if (k === 'company' || k === 'memoAppend' || k === 'due' || k === 'start' || k === 'doneDate') continue;   // 아래에서 따로 처리
     if (!EDITABLE.includes(k)) throw new RuleError('바꿀 수 없는 항목입니다: ' + k);
   }
   if ('text' in patch) {
@@ -158,6 +194,16 @@ export function cleanPatch(patch, { nowMs = Date.now(), creating = false } = {})
   }
   const dueIn = 'due' in patch ? patch.due : patch.dueDate;
   if ('due' in patch || 'dueDate' in patch) out.dueDate = parseDue(dueIn ?? '', nowMs);
+  // 시작일 — 비우면 오늘. 이 날이 오면 「하고 있는 업무」로 옮겨 간다
+  const startIn = 'start' in patch ? patch.start : patch.startDate;
+  if ('start' in patch || 'startDate' in patch) out.startDate = startIn === '' || startIn === null || startIn === undefined ? kstToday(nowMs) : parseDue(startIn, nowMs);
+  // 완료한 날 — 넣으면 완료로 바꾸고 그날을 완료일로
+  if ('doneDate' in patch) {
+    if (creating) throw new RuleError('새 할 일은 완료 상태로 만들 수 없습니다');
+    if ('status' in out && out.status !== 'done') throw new RuleError('완료한 날(doneDate)은 완료(status=done)일 때만 넣습니다');
+    out.status = 'done';
+    out.doneAt = doneAtOf(parseDoneDate(patch.doneDate, nowMs), nowMs);
+  }
   if ('kind' in patch) {
     if (patch.kind && !KINDS.includes(patch.kind)) throw new RuleError('종류는 ' + KINDS.join('·') + ' 중 하나입니다');
     out.kind = patch.kind || '';
@@ -175,6 +221,8 @@ export function cleanPatch(patch, { nowMs = Date.now(), creating = false } = {})
 //   actor: {name, via}  — 이름은 정석진·김학미·공동(채팅이면 'Claude(정석진)')
 export function applyChange(old, upd, actor, nowMs = Date.now()) {
   const next = {}; const changes = {};
+  upd = Object.assign({}, upd);
+  if ('doneAt' in upd && old && old.doneAt && kstToday(old.doneAt) === kstToday(upd.doneAt)) delete upd.doneAt;   // 같은 날이면 그대로
   for (const [k, v] of Object.entries(upd)) {
     const before = old ? old[k] : undefined;
     if (JSON.stringify(before ?? '') === JSON.stringify(v ?? '')) continue;
@@ -182,8 +230,13 @@ export function applyChange(old, upd, actor, nowMs = Date.now()) {
   }
   if (!Object.keys(next).length) return { write: {}, changes: {} };
   if ('status' in next) {
-    if (next.status === 'done') next.doneAt = nowMs;
+    if (next.status === 'done') { if (!('doneAt' in upd)) next.doneAt = nowMs; }
     else if (old && (old.status === 'done' || old.status === 'cancel')) next.doneAt = null;   // 다시 열면 완료일 지움
+    // 「시작」(ing)으로 바꿨는데 시작일이 앞날이면 오늘로 당긴다
+    const today = kstToday(nowMs);
+    if (next.status === 'ing' && !('startDate' in upd) && old && old.startDate && old.startDate > today) {
+      next.startDate = today; changes.startDate = [old.startDate, today];
+    }
   }
   if (TOUCH_FIELDS.some(k => k in changes)) next.statusAt = nowMs;
   next.updatedAt = nowMs;
@@ -194,6 +247,7 @@ export function applyChange(old, upd, actor, nowMs = Date.now()) {
 // 새 할 일 문서
 export function newTodo(fields, { no, source, sourceRef, actor, nowMs = Date.now(), seriesId }) {
   const doc = Object.assign({ status: 'wait', dueDate: '' }, fields);
+  if (!doc.startDate) doc.startDate = kstToday(nowMs);   // 시작일 기본 = 등록한 날
   doc.no = no;
   doc.source = source;
   if (sourceRef) doc.sourceRef = sourceRef;
@@ -206,26 +260,39 @@ export function newTodo(fields, { no, source, sourceRef, actor, nowMs = Date.now
   return doc;
 }
 
-// ── 네 칸(+기다리는 중) 계산 — SGCRM todoBucket과 같은 규칙에 waiting·cancel·휴지통 추가 ──
+// ── 세 칸 계산 + 꼬리표 ── 칸은 시작일만 본다. 긴급·기다림·마감·오래 끈 일은 꼬리표(tags)
+//   돌려주는 값: {col: ing|todo|done|trash, days(시작 뒤 지난 날 / 시작까지 남은 날), alert(빨간 표시), tags:[{t, tone}], reason(한 줄 글)}
+//   tone: red 빨강 · amber 주황 · wait 기다림 · plain 보통
 export function touchedAt(t) { return t.statusAt || t.createdAt || 0; }
+export function startOf(t, nowMs = Date.now()) {
+  return t.startDate || (t.createdAt ? kstToday(t.createdAt) : kstToday(nowMs));
+}
 export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
-  if (t.deletedAt) return { col: 'trash', reason: '' };
-  if (t.status === 'done' || t.status === 'cancel') return { col: 'done', reason: '' };
+  if (t.deletedAt) return { col: 'trash', days: 0, alert: false, tags: [], reason: '' };
+  const tags = [];
+  if (t.status === 'done' || t.status === 'cancel') {
+    const dd = t.doneAt ? kstToday(t.doneAt) : '';
+    return { col: 'done', days: 0, alert: false, tags: t.status === 'cancel' ? [{ t: '취소', tone: 'plain' }] : [], reason: t.status === 'cancel' ? '취소' : dd ? dd.slice(5).replace('-', '/') + ' 완료' : '완료' };
+  }
   const today = kstToday(nowMs);
+  const start = startOf(t, nowMs);
   const due = t.dueDate || '';
   const dleft = due ? daysBetween(today, due) : null;
-  const idle = Math.floor((nowMs - touchedAt(t)) / 86400000);
-  if (t.status === 'waiting') {
-    if (due && dleft < 0) return { col: 'miss', reason: '확인일 ' + (-dleft) + '일 지남' + (t.waitingFor ? ' · ' + t.waitingFor : '') };
-    if (!due && touchedAt(t) && idle >= rules.stallDays) return { col: 'miss', reason: idle + '일째 기다림' };
-    return { col: 'waiting', reason: (t.waitingFor || '') + (due ? (t.waitingFor ? ' · ' : '') + '확인 D-' + dleft : '') };
+  if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });
+  if (t.status === 'waiting') tags.push({ t: '⏳ ' + (t.waitingFor || '기다리는 중'), tone: 'wait' });
+  let alert = false;
+  if (due) {
+    if (dleft < 0) { tags.push({ t: '마감 ' + (-dleft) + '일 지남', tone: 'red' }); alert = true; }
+    else tags.push({ t: '마감 ' + (dleft === 0 ? '오늘' : 'D-' + dleft), tone: dleft <= rules.soonDays ? 'amber' : 'plain' });
   }
-  if (due && dleft < 0) return { col: 'miss', reason: '마감 ' + (-dleft) + '일 지남' };
-  if (t.status === 'ing' && touchedAt(t) && idle >= rules.stallDays) return { col: 'miss', reason: idle + '일째 그대로' };
-  if (t.status !== 'ing' && due && dleft <= rules.soonDays) return { col: 'miss', reason: 'D-' + dleft + ' · 아직 시작 안 함' };
-  if (t.status === 'ing') return { col: 'ing', reason: due ? 'D-' + dleft : '' };
-  if (!due || dleft <= rules.horizonDays) return { col: 'todo', reason: due ? 'D-' + dleft : '' };
-  return { col: 'later', reason: due };
+  if (start > today) {
+    const left = daysBetween(today, start);
+    return { col: 'todo', days: left, alert, tags, reason: [(left === 1 ? '내일 시작' : 'D-' + left)].concat(tags.map(x => x.t)).join(' · ') };
+  }
+  const days = daysBetween(start, today) + 1;   // 시작한 날 = 1일째
+  if (days >= rules.stallDays) alert = true;     // 오래 끈 일
+  const head = days === 1 ? '오늘 시작' : days + '일째';
+  return { col: 'ing', days, alert, tags, reason: [head].concat(tags.map(x => x.t)).join(' · ') };
 }
 
 // 변동 기록 한 줄 요약
@@ -237,6 +304,8 @@ export function summarize(action, todo, changes, actorName) {
   const parts = Object.entries(changes || {}).map(([k, [, to]]) => {
     if (k === 'status') return STATUS_LABEL[to] || to;
     if (k === 'dueDate') return to ? '마감 ' + to : '마감 없앰';
+    if (k === 'startDate') return '시작 ' + to;
+    if (k === 'doneAt') return to ? '완료일 ' + kstToday(to) : '완료일 지움';
     if (k === 'text') return '내용 수정';
     if (k === 'memo') return '메모 수정';
     if (k === 'bizno') return '기업 연결 변경';

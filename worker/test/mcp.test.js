@@ -155,7 +155,8 @@ test('MCP 도구 — 추가·완료·수정·조회·바뀐 것·삭제·되살�
   assert.equal([...db.store.keys()].filter(k => k.startsWith('todos/')).length, 0);
   // 추가
   r = await tool('todo_add', { text: '벤처 서류 요청', company: '하이퍼다인', due: '10/10', author: '정석진' });
-  assert.equal(r.err, false); assert.match(r.text, /^T-0001 저장됨 · ㈜하이퍼다인 · 마감 2026-10-10/);
+  assert.equal(r.err, false); assert.match(r.text, /^T-0001 저장됨 · ㈜하이퍼다인 · 하고 있는 업무 · 마감 2026-10-10/);
+  assert.equal(db.store.get('todos/T-0001').startDate, '2026-10-08');            // 시작일 기본 = 오늘
   // 같은 말을 곧바로 또 → 새로 안 만듦(재시도 중복 방지)
   r = await tool('todo_add', { text: '벤처 서류 요청', company: '하이퍼다인', due: '10/10', author: '정석진' });
   assert.match(r.text, /이미 있는 할 일/);
@@ -165,30 +166,42 @@ test('MCP 도구 — 추가·완료·수정·조회·바뀐 것·삭제·되살�
   assert.equal(t1.source, 'chat'); assert.equal(t1.createdBy, '정석진');
   // 조회
   r = await tool('todo_list', {});
-  assert.match(r.text, /오늘 볼 할 일 2건/);
-  assert.match(r.text, /T-0001 \[놓침·D-2 · 아직 시작 안 함\] ㈜하이퍼다인 — 벤처 서류 요청 \(10\/10\) · 정석진/);
+  assert.match(r.text, /하고 있는 업무 \+ 해야 할 업무 2건/);
+  assert.match(r.text, /T-0001 \[하는 중 · 오늘 시작 · 마감 D-2\] ㈜하이퍼다인 — 벤처 서류 요청 · 정석진/);
+  // 「내일부터」 → 해야 할 업무
+  r = await tool('todo_add', { text: '현장 방문', start: '내일', author: '김학미' });
+  assert.match(r.text, /^T-0003 저장됨 · 해야 할 업무\(2026-10-09 시작\)/);
+  r = await tool('todo_list', { view: 'todo' });
+  assert.match(r.text, /해야 할 업무 1건/); assert.match(r.text, /T-0003 \[할 일 · 내일 시작\] 현장 방문 \(10\/09 시작\) · 김학미/);
+  r = await tool('todo_delete', { no: 'T-0003', reason: '시험', author: '김학미' });
   // 수정 — 기다림
   r = await tool('todo_update', { no: 'T-0001', status: 'waiting', waitingFor: '고객 서류 회신', due: '10/15', author: '김학미' });
   assert.match(r.text, /T-0001 수정됨: .*상태 → 기다리는 중/);
   r = await tool('todo_list', { view: 'waiting' });
-  assert.match(r.text, /T-0001 \[기다림·고객 서류 회신 · 확인 D-7\]/);
+  assert.match(r.text, /T-0001 \[하는 중 · 오늘 시작 · ⏳ 고객 서류 회신 · 마감 D-7\]/);
   // 완료 — 여러 개, 반복은 다음 회차
   r = await tool('todo_complete', { no: ['T-0001', 2, 'T-0099'], author: '정석진', note: '접수 완료' });
-  assert.match(r.text, /T-0001 완료/); assert.match(r.text, /T-0002 완료 .*다음 회차 T-0003, 마감 2026-11-30/); assert.match(r.text, /T-0099 실패: 없는 할 일/);
+  assert.match(r.text, /T-0001 완료\(2026-10-08\)/); assert.match(r.text, /T-0002 완료\(2026-10-08\) .*다음 회차 T-0004, 2026-11-07 시작 · 마감 2026-11-30/); assert.match(r.text, /T-0099 실패: 없는 할 일/);
   assert.equal(db.store.get('todos/T-0001').status, 'done');
+  // 끝낸 날 고치기 — 「어제 끝냈어」
+  r = await tool('todo_complete', { no: 'T-0001', date: '어제', author: '정석진' });
+  assert.match(r.text, /T-0001 완료일 고침\(2026-10-07\)/);
+  assert.equal(db.store.get('todos/T-0001').doneAt, Date.parse('2026-10-07T12:00:00+09:00'));
+  assert.equal((await tool('todo_complete', { no: 'T-0004', date: '내일', author: '정석진' })).text.includes('앞날'), true);
+  assert.match((await tool('todo_list', { view: 'done' })).text, /완료 업무\(최근 순\) 2건[^\n]*\nT-0002 \[완료 · 10\/08 완료\][^\n]*\nT-0001 \[완료 · 10\/07 완료\]/);
   // 자세히 — 이력에 Claude 표시
   r = await tool('todo_get', { no: 1 });
   assert.match(r.text, /메모:\n10\/08 완료: 접수 완료/); assert.match(r.text, /정석진 · T-0001 .* → 완료 \(Claude\)/);
   // 삭제 → 목록에서 빠짐 → 되살리기
-  r = await tool('todo_delete', { no: 'T-0003', reason: '잘못 넣음', author: '공동' });
-  assert.match(r.text, /T-0003 휴지통으로 옮김 \(2026-11-07까지/);
-  assert.match((await tool('todo_list', { view: 'open' })).text, /끝나지 않은 할 일 0건/);
-  assert.match((await tool('todo_restore', { no: 'T-0003', author: '공동' })).text, /T-0003 되살림/);
+  r = await tool('todo_delete', { no: 'T-0004', reason: '잘못 넣음', author: '공동' });
+  assert.match(r.text, /T-0004 휴지통으로 옮김 \(2026-11-07까지/);
+  assert.match((await tool('todo_list', { view: 'open' })).text, /해야 할 업무 0건/);
+  assert.match((await tool('todo_restore', { no: 'T-0004', author: '공동' })).text, /T-0004 되살림/);
   // 바뀐 것
   r = await tool('todo_changes', { since: '1h' }, NOW + 1000);
-  assert.match(r.text, /이후 바뀐 것 \d+건/); assert.match(r.text, /공동 · T-0003 .* 되살림 \(Claude\)/);
+  assert.match(r.text, /이후 바뀐 것 \d+건/); assert.match(r.text, /공동 · T-0004 .* 되살림 \(Claude\)/);
   r = await tool('todo_changes', { company: '하이퍼다인', since: '2026-10-08' }, NOW + 1000);
-  assert.doesNotMatch(r.text, /T-0003/);
+  assert.doesNotMatch(r.text, /T-0004/);
   // 기업 찾기
   assert.match((await tool('company_find', { query: '청림' })).text, /후보 2곳/);
   assert.equal((await tool('company_find', { query: '1111111111' })).text, '㈜하이퍼다인 · 111-11-11111');
