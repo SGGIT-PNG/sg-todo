@@ -196,12 +196,12 @@ export function present(t, rules, nowMs) {
     col: b.col, days: b.days, alert: b.alert, tags: b.tags, reason: b.reason,
   };
 }
-// 하고 있는 업무 정렬: 긴급 → 빨간 표시(마감 지남·오래 끈 일) → 마감 가까운 순 → 오래된 순
+// 진행 업무 정렬: 긴급 → 빨간 표시(마감 지남·오래 끈 일) → 마감 가까운 순 → 오래된 순
 export function sortIng(a, b) {
   return ((b.priority === 'high') - (a.priority === 'high')) || (b.alert - a.alert)
     || (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || (b.days - a.days) || ((a.no || 0) - (b.no || 0));
 }
-// 해야 할 업무 정렬: 시작일 가까운 순 → 긴급
+// 예정 업무 정렬: 시작일 가까운 순 → 긴급
 export function sortTodo(a, b) {
   return a.startDate.localeCompare(b.startDate) || ((b.priority === 'high') - (a.priority === 'high')) || ((a.no || 0) - (b.no || 0));
 }
@@ -211,7 +211,7 @@ export function sortIdea(a, b) {
 }
 const COL_ORDER = { ing: 0, todo: 1, idea: 2, done: 3, trash: 4 };
 const VIEW_ALIAS = { today: 'open', missed: 'alert', recent_done: 'done' };   // 예전 이름도 받는다
-//   view: ing(하고 있는 업무) | todo(해야 할 업무) | idea(제안 업무) | done(완료, 최근 순) | open(ing+todo) | all(ing+todo+idea)
+//   view: ing(진행 업무) | todo(예정 업무) | idea(제안 업무) | done(완료, 최근 순) | open(ing+todo) | all(ing+todo+idea)
 //         | alert(빨간 표시) | waiting(기다리는 중) | week(7일 안 마감) | trash
 export async function listTodos(db, { view = 'open', company, category, query, limit = 50 } = {}, nowMs = Date.now()) {
   view = VIEW_ALIAS[view] || view;

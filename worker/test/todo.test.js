@@ -54,7 +54,7 @@ test('세 칸 계산 — 시작일만 보고, 나머지는 꼬리표', () => {
   const late = b({ startDate: '2026-10-01', dueDate: '2026-10-05' });
   assert.equal(late.col, 'ing'); assert.equal(late.alert, true); assert.deepEqual(late.tags, [{ t: '마감 3일 지남', tone: 'red' }]);
   assert.equal(b({ startDate: '2026-10-08', dueDate: '2026-10-10' }).tags[0].tone, 'amber');
-  assert.equal(b({ startDate: '2026-10-20', dueDate: '2026-10-25' }).col, 'todo');   // 마감이 있어도 시작 전이면 해야 할 업무
+  assert.equal(b({ startDate: '2026-10-20', dueDate: '2026-10-25' }).col, 'todo');   // 마감이 있어도 시작 전이면 예정 업무
   // 오래 끈 일 (14일째부터 빨강)
   assert.equal(b({ startDate: '2026-09-26' }).alert, false);               // 13일째
   assert.equal(b({ startDate: '2026-09-25' }).alert, true);                // 14일째
@@ -85,7 +85,7 @@ test('시작일 — 추가·미루기·지금 시작·완료한 날', async () =
   assert.equal(db.store.get('todos/T-0001').startDate, '2026-10-08');
   assert.equal(db.store.get('todos/T-0002').startDate, '2026-10-13');
   await assert.rejects(createTodo(ctxOf(db), { text: 'x', start: '언젠가' }), /날짜/);
-  // 미루기 → 해야 할 업무로, 「지금 시작」(ing) → 시작일 오늘로 당김
+  // 미루기 → 예정 업무로, 「지금 시작」(ing) → 시작일 오늘로 당김
   await updateTodo(ctxOf(db), 'T-0001', { start: '+3' });
   assert.equal((await listTodos(db, { view: 'todo' }, NOW)).total, 2);
   await updateTodo(ctxOf(db), 'T-0002', { status: 'ing' });
@@ -221,9 +221,9 @@ test('조회 · 상세 · 변동', async () => {
   await createTodo(ctxOf(db), { text: '하이퍼다인 서류 요청', due: '2026-10-01' });          // 놓침
   await createTodo(ctxOf(db), { text: '심사원 회신', status: 'waiting', waitingFor: '심사원', due: '2026-10-15' });
   await createTodo(ctxOf(db), { text: '연간신고', due: '2027-04-30' });                     // 앞으로
-  await createTodo(ctxOf(db), { text: '다음 달 일', start: '11/2' });                          // 해야 할 업무
+  await createTodo(ctxOf(db), { text: '다음 달 일', start: '11/2' });                          // 예정 업무
   const today = await listTodos(db, { view: 'today' }, NOW);                                 // 예전 이름 today = open
-  assert.deepEqual(today.items.map(i => i.label), ['T-0001', 'T-0002', 'T-0003', 'T-0004']);  // 빨간 표시(마감 지남) 먼저, 해야 할 업무는 뒤
+  assert.deepEqual(today.items.map(i => i.label), ['T-0001', 'T-0002', 'T-0003', 'T-0004']);  // 빨간 표시(마감 지남) 먼저, 예정 업무는 뒤
   assert.equal(today.items[0].alert, true); assert.equal(today.items[3].col, 'todo');
   assert.equal((await listTodos(db, { view: 'missed' }, NOW)).total, 1);
   assert.equal((await listTodos(db, { view: 'open', company: '하이퍼다인' }, NOW)).total, 1);
@@ -339,7 +339,7 @@ test('드라이브 스크립트 ingest — 채팅 출처·작성자 이름', asy
   assert.equal(chk.status, 400); assert.match((await chk.json()).error, /sourceRef/);
 });
 
-test('제안 업무 — 날짜는 사람이 넣을 때만, 와도 제안 칸에 머묾, 맡으면 하고 있는·해야 할 업무로 (A안)', async () => {
+test('제안 업무 — 날짜는 사람이 넣을 때만, 와도 제안 칸에 머묾, 맡으면 하고 있는·예정 업무로 (A안)', async () => {
   const db = seed();
   // 날짜 없이 넣으면 비어 있다(등록한 날로 채우지 않음)
   await createTodo(ctxOf(db), { text: 'ISO 인증 제안', company: '하이퍼다인', status: 'idea' });
@@ -373,7 +373,7 @@ test('제안 업무 — 날짜는 사람이 넣을 때만, 와도 제안 칸에 
   b = core.bucket(t, core.RULES_DEFAULT, later);
   assert.equal(b.col, 'ing'); assert.equal(b.days, 1);
   assert.match(acts(db).at(-1).summary, /제안 → 진행/); assert.ok(r.changes.startDate);
-  // 날짜를 정해 맡기 → 해야 할 업무
+  // 날짜를 정해 맡기 → 예정 업무
   await createTodo(ctxOf(db), { text: '연구소 설립 제안', status: 'idea' });
   await updateTodo(ctxOf(db), 'T-0002', { status: 'wait', start: '10/20' });
   assert.equal(core.bucket(db.store.get('todos/T-0002'), core.RULES_DEFAULT, NOW).col, 'todo');

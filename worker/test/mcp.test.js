@@ -155,7 +155,7 @@ test('MCP 도구 — 추가·완료·수정·조회·바뀐 것·삭제·되살�
   assert.equal([...db.store.keys()].filter(k => k.startsWith('todos/')).length, 0);
   // 추가
   r = await tool('todo_add', { text: '벤처 서류 요청', company: '하이퍼다인', due: '10/10', author: '정석진' });
-  assert.equal(r.err, false); assert.match(r.text, /^T-0001 저장됨 · ㈜하이퍼다인 · 하고 있는 업무 · 마감 2026-10-10/);
+  assert.equal(r.err, false); assert.match(r.text, /^T-0001 저장됨 · ㈜하이퍼다인 · 진행 업무 · 마감 2026-10-10/);
   assert.equal(db.store.get('todos/T-0001').startDate, '2026-10-08');            // 시작일 기본 = 오늘
   // 같은 말을 곧바로 또 → 새로 안 만듦(재시도 중복 방지)
   r = await tool('todo_add', { text: '벤처 서류 요청', company: '하이퍼다인', due: '10/10', author: '정석진' });
@@ -166,19 +166,19 @@ test('MCP 도구 — 추가·완료·수정·조회·바뀐 것·삭제·되살�
   assert.equal(t1.source, 'chat'); assert.equal(t1.createdBy, '정석진');
   // 조회
   r = await tool('todo_list', {});
-  assert.match(r.text, /하고 있는 업무 \+ 해야 할 업무 2건/);
-  assert.match(r.text, /T-0001 \[하는 중 · 오늘 시작 · 마감 D-2\] ㈜하이퍼다인 — 벤처 서류 요청 · 정석진/);
-  // 「내일부터」 → 해야 할 업무
+  assert.match(r.text, /진행 업무 \+ 예정 업무 2건/);
+  assert.match(r.text, /T-0001 \[진행 · 오늘 시작 · 마감 D-2\] ㈜하이퍼다인 — 벤처 서류 요청 · 정석진/);
+  // 「내일부터」 → 예정 업무
   r = await tool('todo_add', { text: '현장 방문', start: '내일', author: '김학미' });
-  assert.match(r.text, /^T-0003 저장됨 · 해야 할 업무\(2026-10-09 시작\)/);
+  assert.match(r.text, /^T-0003 저장됨 · 예정 업무\(2026-10-09 시작\)/);
   r = await tool('todo_list', { view: 'todo' });
-  assert.match(r.text, /해야 할 업무 1건/); assert.match(r.text, /T-0003 \[할 일 · 내일 시작\] 현장 방문 \(10\/09 시작\) · 김학미/);
+  assert.match(r.text, /예정 업무 1건/); assert.match(r.text, /T-0003 \[예정 · 내일 시작\] 현장 방문 \(10\/09 시작\) · 김학미/);
   r = await tool('todo_delete', { no: 'T-0003', reason: '시험', author: '김학미' });
   // 수정 — 기다림
   r = await tool('todo_update', { no: 'T-0001', status: 'waiting', waitingFor: '고객 서류 회신', due: '10/15', author: '김학미' });
   assert.match(r.text, /T-0001 수정됨: .*상태 → 기다리는 중/);
   r = await tool('todo_list', { view: 'waiting' });
-  assert.match(r.text, /T-0001 \[하는 중 · 오늘 시작 · ⏳ 고객 서류 회신 · 마감 D-7\]/);
+  assert.match(r.text, /T-0001 \[진행 · 오늘 시작 · ⏳ 고객 서류 회신 · 마감 D-7\]/);
   // 완료 — 여러 개, 반복은 다음 회차
   r = await tool('todo_complete', { no: ['T-0001', 2, 'T-0099'], author: '정석진', note: '접수 완료' });
   assert.match(r.text, /T-0001 완료\(2026-10-08\)/); assert.match(r.text, /T-0002 완료\(2026-10-08\) .*다음 회차 T-0004, 2026-11-07 시작 · 마감 2026-11-30/); assert.match(r.text, /T-0099 실패: 없는 할 일/);
@@ -195,7 +195,7 @@ test('MCP 도구 — 추가·완료·수정·조회·바뀐 것·삭제·되살�
   // 삭제 → 목록에서 빠짐 → 되살리기
   r = await tool('todo_delete', { no: 'T-0004', reason: '잘못 넣음', author: '공동' });
   assert.match(r.text, /T-0004 휴지통으로 옮김 \(2026-11-07까지/);
-  assert.match((await tool('todo_list', { view: 'open' })).text, /해야 할 업무 0건/);
+  assert.match((await tool('todo_list', { view: 'open' })).text, /예정 업무 0건/);
   assert.match((await tool('todo_restore', { no: 'T-0004', author: '공동' })).text, /T-0004 되살림/);
   // 바뀐 것
   r = await tool('todo_changes', { since: '1h' }, NOW + 1000);
