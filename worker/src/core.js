@@ -9,8 +9,10 @@ export const STATUS_LABEL = { wait: '진행', ing: '진행', waiting: '기다리
 //     실제로 맡으면(status ing/wait) 하고 있는·예정 업무로 옮겨 간다
 //     제안의 시작일·종료일(마감)은 사람이 넣을 때만 저장하고 보여 주기만 한다 (2026-10-12 사장님 지시 — A안)
 //     등록한 날로 저절로 채우지 않고, 날짜가 와도 제안 칸에 머물며, 종료일이 지나도 빨간 표시 없이 회색 「종료일 지남」
-export const COLS = ['ing', 'todo', 'idea', 'done'];
-export const COL_LABEL = { ing: '진행 업무', todo: '예정 업무', idea: '제안 업무', done: '완료 업무', trash: '휴지통' };
+//   + 📞 통화(kind call, 2026-10-12): 업무가 아니라 「언제 몇 시에 누구에게 전화」. 날짜 = 시작일, 시각 = callTime.
+//     진행·예정 업무 칸에는 안 나오고 통화 칸에만. 날짜가 지났는데 안 한 통화는 놓친 통화(빨간 표시)
+export const COLS = ['call', 'ing', 'todo', 'idea', 'done'];
+export const COL_LABEL = { call: '📞 통화', ing: '진행 업무', todo: '예정 업무', idea: '제안 업무', done: '완료 업무', trash: '휴지통' };
 export const KINDS = ['call', 'doc', 'apply', 'visit', 'chase', 'internal'];
 export const KIND_LABEL = { call: '전화', doc: '서류', apply: '신청', visit: '방문', chase: '독촉', internal: '내부' };
 // 업무 분야(중분류) — SGCRM DEFAULT_CAT_META와 같은 id. 화면은 칸 안을 이 순서로 묶는다 (2026-10-12)
@@ -38,7 +40,7 @@ export const TRASH_DAYS = 30;
 
 // 사람이 바꿀 수 있는 칸 (그 외 no·createdAt·source 등은 창구만 정한다)
 export const EDITABLE = ['text', 'status', 'startDate', 'dueDate', 'waitingFor', 'bizno', 'companyName', 'category',
-  'kind', 'priority', 'assignee', 'memo', 'tag', 'repeat'];
+  'kind', 'callTime', 'priority', 'assignee', 'memo', 'tag', 'repeat'];
 // 바뀌면 「손댄 것」으로 보는 칸 — 멈춤 판정 기준 statusAt 갱신 (CRM 기존 규칙과 같음)
 const TOUCH_FIELDS = ['status', 'startDate', 'dueDate', 'memo', 'waitingFor'];
 
@@ -125,6 +127,21 @@ export function doneAtOf(ds, nowMs = Date.now()) {
   return ds === kstToday(nowMs) ? nowMs : Date.parse(ds + 'T12:00:00+09:00');
 }
 
+// 통화 시각 말: 14:00 · 14시 · 2시 반 · 오후 2시 · 오전 10시 30분 · 1430 → 'HH:MM'. 빈 값이면 ''(시간 미정)
+//   오전/오후 없이 1~7시는 오후로 본다(업무 시간 통화)
+export function parseCallTime(v) {
+  const s = String(v ?? '').trim().replace(/\s+/g, '');
+  if (!s) return '';
+  let m = s.match(/^(오전|오후|아침|저녁|낮)?(\d{1,2})(?::|시)(\d{1,2})?(?:분)?(반)?$/) || s.match(/^(오전|오후)?(\d{1,2})(\d{2})$/);
+  if (!m) throw new RuleError('통화 시각을 알아볼 수 없습니다: 「' + v + '」 (예: 14:00, 오후 2시, 2시 반)');
+  let h = Number(m[2]); let mi = m[3] ? Number(m[3]) : (m[4] ? 30 : 0);
+  const ap = m[1] || '';
+  if ((ap === '오후' || ap === '저녁') && h < 12) h += 12;
+  else if (!ap && h >= 1 && h <= 7) h += 12;
+  if (h > 23 || mi > 59) throw new RuleError('통화 시각이 올바르지 않습니다: 「' + v + '」');
+  return String(h).padStart(2, '0') + ':' + String(mi).padStart(2, '0');
+}
+
 // ── 반복 ── {every:'week'|'month'|'year', n:1, day?, month?}
 export function normRepeat(r) {
   if (r === null || r === '' || r === undefined) return r === undefined ? undefined : null;
@@ -201,7 +218,7 @@ export function cleanPatch(patch, { nowMs = Date.now(), creating = false } = {})
   if (!patch || typeof patch !== 'object') throw new RuleError('바꿀 내용이 없습니다');
   const out = {};
   for (const k of Object.keys(patch)) {
-    if (k === 'company' || k === 'memoAppend' || k === 'due' || k === 'start' || k === 'doneDate') continue;   // 아래에서 따로 처리
+    if (k === 'company' || k === 'memoAppend' || k === 'due' || k === 'start' || k === 'doneDate' || k === 'time') continue;   // 아래에서 따로 처리
     if (!EDITABLE.includes(k)) throw new RuleError('바꿀 수 없는 항목입니다: ' + k);
   }
   if ('text' in patch) {
@@ -229,6 +246,11 @@ export function cleanPatch(patch, { nowMs = Date.now(), creating = false } = {})
   if ('kind' in patch) {
     if (patch.kind && !KINDS.includes(patch.kind)) throw new RuleError('종류는 ' + KINDS.join('·') + ' 중 하나입니다');
     out.kind = patch.kind || '';
+  }
+  // 통화 시각 — time 또는 callTime. 시각을 넣으면 통화(kind call)로 본다
+  if ('time' in patch || 'callTime' in patch) {
+    out.callTime = parseCallTime('time' in patch ? patch.time : patch.callTime);
+    if (out.callTime && !('kind' in out)) out.kind = 'call';
   }
   if ('priority' in patch) out.priority = patch.priority === 'high' || patch.priority === true ? 'high' : '';
   for (const k of ['waitingFor', 'category', 'assignee', 'memo', 'tag', 'bizno', 'companyName']) {
@@ -319,6 +341,15 @@ export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
   const start = startOf(t, nowMs);
   const due = t.dueDate || '';
   const dleft = due ? daysBetween(today, due) : null;
+  if (t.kind === 'call' && t.status !== 'idea') {   // 📞 통화 — 날짜(시작일)·시각만 본다. 날짜 지났는데 안 했으면 놓친 통화
+    const d = start;
+    const when = (d === today ? '오늘' : d === addDays(today, 1) ? '내일' : d.slice(5).replace('-', '/')) + (t.callTime ? ' ' + t.callTime : ' 시간 미정');
+    const missed = d < today;
+    if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });
+    if (missed) tags.push({ t: '놓친 통화', tone: 'red' });
+    if (t.status === 'waiting') tags.push({ t: '⏳ ' + (t.waitingFor || '기다리는 중'), tone: 'wait' });
+    return { col: 'call', days: daysBetween(today, d), alert: missed, tags, reason: [when].concat(tags.map(x => x.t)).join(' · ') };
+  }
   if (t.status === 'idea') {   // 제안 업무 — 날짜로 압박하지 않는다(빨간 표시 없음). 얼마나 묵었는지만
     const age = t.createdAt ? daysBetween(kstToday(t.createdAt), today) : 0;
     if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });

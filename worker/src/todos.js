@@ -192,7 +192,7 @@ export function present(t, rules, nowMs) {
     doneDate: t.doneAt && (t.status === 'done' || t.status === 'cancel') ? kstToday(t.doneAt) : '',
     bizno: t.bizno || '', companyName: t.companyName || '', category: t.category || '', kind: t.kind || '',
     priority: t.priority || '', waitingFor: t.waitingFor || '', memo: t.memo || '', source: t.source || '',
-    createdBy: t.createdBy || '', repeat: t.repeat || null,
+    createdBy: t.createdBy || '', repeat: t.repeat || null, callTime: t.callTime || '',
     col: b.col, days: b.days, alert: b.alert, tags: b.tags, reason: b.reason,
   };
 }
@@ -209,9 +209,13 @@ export function sortTodo(a, b) {
 export function sortIdea(a, b) {
   return ((b.priority === 'high') - (a.priority === 'high')) || (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || (b.days - a.days) || ((a.no || 0) - (b.no || 0));
 }
-const COL_ORDER = { ing: 0, todo: 1, idea: 2, done: 3, trash: 4 };
+// 통화 정렬: 날짜 → 시각(시간 미정은 그날 맨 뒤) → 번호
+export function sortCall(a, b) {
+  return a.startDate.localeCompare(b.startDate) || ((a.callTime ? 0 : 1) - (b.callTime ? 0 : 1)) || a.callTime.localeCompare(b.callTime) || ((a.no || 0) - (b.no || 0));
+}
+const COL_ORDER = { call: 0, ing: 1, todo: 2, idea: 3, done: 4, trash: 5 };
 const VIEW_ALIAS = { today: 'open', missed: 'alert', recent_done: 'done' };   // 예전 이름도 받는다
-//   view: ing(진행 업무) | todo(예정 업무) | idea(제안 업무) | done(완료, 최근 순) | open(ing+todo) | all(ing+todo+idea)
+//   view: call(📞 통화, 날짜·시각 순) | ing(진행 업무) | todo(예정 업무) | idea(제안 업무) | done(완료, 최근 순) | open(ing+todo) | all(ing+todo+idea)
 //         | alert(빨간 표시) | waiting(기다리는 중) | week(7일 안 마감) | trash
 export async function listTodos(db, { view = 'open', company, category, query, limit = 50 } = {}, nowMs = Date.now()) {
   view = VIEW_ALIAS[view] || view;
@@ -220,10 +224,11 @@ export async function listTodos(db, { view = 'open', company, category, query, l
   const today = kstToday(nowMs);
   const live = r => r.col === 'ing' || r.col === 'todo';
   const views = {
+    call: r => r.col === 'call',
     ing: r => r.col === 'ing',
     todo: r => r.col === 'todo',
     idea: r => r.col === 'idea',
-    all: r => live(r) || r.col === 'idea',
+    all: r => live(r) || r.col === 'idea' || r.col === 'call',
     done: r => r.col === 'done',
     open: live,
     alert: r => live(r) && r.alert,
@@ -237,7 +242,7 @@ export async function listTodos(db, { view = 'open', company, category, query, l
   if (category) rows = rows.filter(r => r.category === category);
   if (query) { const q = String(query).toLowerCase(); rows = rows.filter(r => (r.text + ' ' + r.memo + ' ' + r.companyName).toLowerCase().includes(q)); }
   if (view === 'done') rows.sort((a, b) => (b.doneDate || '').localeCompare(a.doneDate || '') || (b.no || 0) - (a.no || 0));
-  else rows.sort((a, b) => COL_ORDER[a.col] - COL_ORDER[b.col] || (a.col === 'todo' ? sortTodo(a, b) : a.col === 'idea' ? sortIdea(a, b) : sortIng(a, b)));
+  else rows.sort((a, b) => COL_ORDER[a.col] - COL_ORDER[b.col] || (a.col === 'todo' ? sortTodo(a, b) : a.col === 'idea' ? sortIdea(a, b) : a.col === 'call' ? sortCall(a, b) : sortIng(a, b)));
   return { view, total: rows.length, items: rows.slice(0, Math.max(1, Math.min(200, limit))) };
 }
 function addDaysStr(ds, n) { const d = new Date(ds + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }

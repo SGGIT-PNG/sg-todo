@@ -424,3 +424,37 @@ test('제안을 취소·완료했다가 다시 열면 제안으로 돌아감 · 
   assert.equal((await updateTodo(ctxOf(db), 'T-0001', { status: 'wait' })).todo.status, 'wait');
   assert.equal(core.normCategory('ISO'), 'iso');
 });
+
+test('📞 통화 — 시각 말 알아듣기 · 통화 칸 · 놓친 통화 · 업무 칸에서 빠짐', async () => {
+  assert.equal(core.parseCallTime('14:00'), '14:00');
+  assert.equal(core.parseCallTime('오후 2시'), '14:00');
+  assert.equal(core.parseCallTime('2시 반'), '14:30');          // 오전/오후 없이 1~7시는 오후
+  assert.equal(core.parseCallTime('오전 10시 30분'), '10:30');
+  assert.equal(core.parseCallTime('9시'), '09:00');
+  assert.equal(core.parseCallTime('1430'), '14:30');
+  assert.equal(core.parseCallTime(''), '');
+  assert.throws(() => core.parseCallTime('점심 때'), core.RuleError);
+  const db = seed();
+  // 시각을 넣으면 통화(kind call)로
+  await createTodo(ctxOf(db), { text: '김태후 대표 통화 — 중진공 서류', company: '청림테크', start: '내일', time: '오후 2시' });
+  let t = db.store.get('todos/T-0001');
+  assert.equal(t.kind, 'call'); assert.equal(t.callTime, '14:00'); assert.equal(t.startDate, '2026-10-09');
+  let b = core.bucket(t, core.RULES_DEFAULT, NOW);
+  assert.equal(b.col, 'call'); assert.equal(b.reason, '내일 14:00'); assert.equal(b.alert, false);
+  // 시각 없는 통화
+  await createTodo(ctxOf(db), { text: '베베볼 서류 요청 전화', kind: 'call' });
+  assert.equal(core.bucket(db.store.get('todos/T-0002'), core.RULES_DEFAULT, NOW).reason, '오늘 시간 미정');
+  // 날짜가 지나면 놓친 통화
+  b = core.bucket(t, core.RULES_DEFAULT, NOW + 3 * DAY);
+  assert.equal(b.col, 'call'); assert.equal(b.alert, true); assert.match(b.reason, /놓친 통화/);
+  // 업무 칸(open)에는 안 나오고 통화 보기에만, 날짜·시각 순
+  await createTodo(ctxOf(db), { text: '일반 업무' });
+  await createTodo(ctxOf(db), { text: '아침 통화', start: '내일', time: '9시' });
+  assert.deepEqual((await listTodos(db, { view: 'open' }, NOW)).items.map(i => i.label), ['T-0003']);
+  assert.deepEqual((await listTodos(db, { view: 'call' }, NOW)).items.map(i => i.label), ['T-0002', 'T-0004', 'T-0001']);
+  // 시각 바꾸기 · 통화했으면 완료
+  await updateTodo(ctxOf(db), 'T-0001', { time: '16:30' });
+  assert.equal(db.store.get('todos/T-0001').callTime, '16:30');
+  await completeTodo(ctxOf(db), 'T-0001', '서류 다음 주 보내기로');
+  assert.equal(core.bucket(db.store.get('todos/T-0001'), core.RULES_DEFAULT, NOW).col, 'done');
+});
