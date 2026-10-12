@@ -245,6 +245,8 @@ export function cleanPatch(patch, { nowMs = Date.now(), creating = false } = {})
 export function applyChange(old, upd, actor, nowMs = Date.now()) {
   const next = {}; const changes = {};
   upd = Object.assign({}, upd);
+  // 제안이었던 일을 완료·취소한 뒤 「다시 열기」(wait)하면 제안으로 돌아간다 — fromIdea로 기억 (2026-10-12 T-0033 사례)
+  if (old && old.fromIdea && (old.status === 'done' || old.status === 'cancel') && upd.status === 'wait') upd.status = 'idea';
   const finalStatus = 'status' in upd ? upd.status : old && old.status;
   // 제안 업무의 날짜는 사람이 넣은 것만 — 보통 할 일을 제안으로 돌릴 때 시작일을 함께 주지 않으면 비운다(등록한 날로 채워진 값일 수 있어서)
   if (finalStatus === 'idea' && old && old.status !== 'idea' && !('startDate' in upd)) upd.startDate = '';
@@ -270,6 +272,10 @@ export function applyChange(old, upd, actor, nowMs = Date.now()) {
       const s = next.status === 'ing' || !old.startDate ? today : old.startDate;
       if ((old.startDate || '') !== s) { next.startDate = s; changes.startDate = [old.startDate || null, s]; }
     }
+  }
+  if ('status' in next) {
+    if (old && old.status === 'idea' && (next.status === 'done' || next.status === 'cancel')) next.fromIdea = true;
+    else if (old && old.fromIdea && next.status !== 'done' && next.status !== 'cancel') next.fromIdea = null;
   }
   if (TOUCH_FIELDS.some(k => k in changes)) next.statusAt = nowMs;
   next.updatedAt = nowMs;
