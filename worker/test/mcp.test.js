@@ -202,6 +202,11 @@ test('MCP 도구 — 추가·완료·수정·조회·바뀐 것·삭제·되살�
   assert.match(r.text, /이후 바뀐 것 \d+건/); assert.match(r.text, /공동 · T-0004 .* 되살림 \(Claude\)/);
   r = await tool('todo_changes', { company: '하이퍼다인', since: '2026-10-08' }, NOW + 1000);
   assert.doesNotMatch(r.text, /T-0004/);
+  // 📞 통화
+  r = await tool('todo_add', { text: '김태후 대표 통화', company: '청림테크', start: '내일', time: '오후 2시', author: '정석진' });
+  assert.match(r.text, /저장됨 · 청림테크 · 📞 통화 2026-10-09 14:00/);
+  assert.match((await tool('todo_list', { view: 'call' })).text, /📞 통화 1건[^\n]*\nT-\d+ \[📞 통화 · 내일 14:00\] 청림테크 — 김태후 대표 통화/);
+  await tool('todo_delete', { no: r.text.match(/^T-\d+/)[0], reason: '시험', author: '정석진' });
   // 제안 업무
   r = await tool('todo_add', { text: 'ISO 인증 제안', company: '하이퍼다인', status: 'idea', author: '정석진' });
   assert.match(r.text, /저장됨 · ㈜하이퍼다인 · 💡 제안 업무/);

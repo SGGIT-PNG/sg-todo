@@ -10,7 +10,7 @@
   --bg:#F4F6FA; --surface:#FFFFFF; --surface2:#F8FAFC; --border:#E2E8F0; --border2:#CBD5E1;
   --text:#0F172A; --text2:#334155; --text3:#64748B; --text4:#94A3B8;
   --navy:#1B2B4B; --primary:#2563EB; --danger:#DC2626; --ok:#059669;
-  --ing:#EA580C; --todo:#2563EB; --waiting:#7C3AED; --idea:#0D9488;
+  --ing:#EA580C; --todo:#2563EB; --waiting:#7C3AED; --idea:#0D9488; --call:#0891B2;
   --radius:10px; --shadow:0 1px 3px rgba(15,23,42,.08);
 }
 *{box-sizing:border-box}
@@ -72,6 +72,9 @@ main{max-width:1180px;margin:0 auto;padding:14px 16px 80px;display:grid;grid-tem
 .days.todo{color:var(--todo)}
 .days.done{color:var(--ok)}
 .days.idea{color:var(--idea)}
+.days.call{color:var(--call)}
+.days.call.alert{color:var(--danger)}
+.sec.c-call>h2{border-left:4px solid var(--call)}
 .sec.c-idea>h2{border-left:4px solid var(--idea)}
 .sec.c-ing>h2{border-left:4px solid var(--ing)}
 .sec.c-todo>h2{border-left:4px solid var(--todo)}
@@ -104,7 +107,7 @@ main{max-width:1180px;margin:0 auto;padding:14px 16px 80px;display:grid;grid-tem
 .week .day.today{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary) inset}
 .week .day h3{margin:0 0 6px;font-size:12px;color:var(--text3);font-weight:600}
 .week .it{font-size:12px;padding:4px 6px;border-radius:6px;background:var(--surface2);margin-bottom:4px;cursor:pointer;border-left:3px solid var(--todo)}
-.week .it.due{border-left-color:var(--danger)}.week .it.fin{border-left-color:var(--ok);color:var(--text3)}
+.week .it.call{border-left-color:var(--call)}.week .it.due{border-left-color:var(--danger)}.week .it.fin{border-left-color:var(--ok);color:var(--text3)}
 @media (max-width:760px){.week{grid-template-columns:1fr}.week .day{min-height:0}}
 .weeknav{display:flex;gap:6px;align-items:center;margin-bottom:8px}
 
@@ -304,6 +307,8 @@ const sortIng = (a, b) => ((b.priority === 'high') - (a.priority === 'high')) ||
   || (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || (b._b.days - a._b.days) || ((a.no || 0) - (b.no || 0));
 const sortTodo = (a, b) => a._start.localeCompare(b._start) || ((b.priority === 'high') - (a.priority === 'high')) || ((a.no || 0) - (b.no || 0));
 const sortIdea = (a, b) => ((b.priority === 'high') - (a.priority === 'high')) || (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || (b._b.days - a._b.days) || ((a.no || 0) - (b.no || 0));
+// 통화: 날짜 → 시각 있는 것 먼저 → 시각 순
+const sortCall = (a, b) => a._start.localeCompare(b._start) || ((a.callTime ? 0 : 1) - (b.callTime ? 0 : 1)) || (a.callTime || '').localeCompare(b.callTime || '') || ((a.no || 0) - (b.no || 0));
 const sortDone = (a, b) => (b.doneAt || b.updatedAt || 0) - (a.doneAt || a.updatedAt || 0);
 const TONE = { red: 'hi', amber: 'am', wait: 'wt', plain: '', mute: 'mu' };
 
@@ -316,11 +321,12 @@ function rowHtml(t, _i, noCat) {   // noCat: 분야별로 묶인 곳에서는 �
   let head = '';
   if (b.col === 'ing') head = '<span class="days' + (b.alert ? ' alert' : '') + '">' + (b.days === 1 ? '오늘 시작' : b.days + '일째') + '</span>';
   else if (b.col === 'todo') head = '<span class="days todo">' + (b.days === 1 ? '내일 시작' : 'D-' + b.days) + '</span><span style="color:var(--text3)">' + md(t._start || core.startOf(t)) + ' 시작</span>';
+  else if (b.col === 'call') head = '<span class="days call' + (b.alert ? ' alert' : '') + '">📞 ' + (b.alert ? '놓친 통화 ' + md(t._start || core.startOf(t)) : b.days === 0 ? '오늘' : b.days === 1 ? '내일' : md(t._start || core.startOf(t))) + ' ' + (t.callTime ? esc(t.callTime) : '시간 미정') + '</span>';
   else if (b.col === 'idea') head = '<span class="days idea">💡 제안</span><span style="color:var(--text4)">' + (b.days === 0 ? '오늘 등록' : '등록 ' + b.days + '일 전') + '</span>';
   else if (done && t.status !== 'cancel') head = '<span class="days done">' + (doneDay(t) ? md(doneDay(t)) + ' 완료' : '완료') + '</span>';
   if (t.companyName) chips.push('<span class="chip co">🏢 ' + esc(shortCo(t.companyName)) + '</span>');
-  (b.tags || []).forEach(x => chips.push('<span class="chip ' + (TONE[x.tone] || '') + '">' + esc(x.t) + '</span>'));
-  if (t.kind && core.KIND_LABEL[t.kind]) chips.push('<span class="chip">' + core.KIND_LABEL[t.kind] + '</span>');
+  (b.tags || []).filter(x => !(b.col === 'call' && x.t === '놓친 통화')).forEach(x => chips.push('<span class="chip ' + (TONE[x.tone] || '') + '">' + esc(x.t) + '</span>'));
+  if (t.kind && core.KIND_LABEL[t.kind] && b.col !== 'call') chips.push('<span class="chip">' + core.KIND_LABEL[t.kind] + '</span>');
   if (!noCat && t.category && CATS[core.normCategory(t.category)]) chips.push('<span class="chip">' + CATS[core.normCategory(t.category)] + '</span>');
   if (t.repeat && t.repeat.every) chips.push('<span class="chip">🔁 ' + ({ week:'매주', month:'매월', year:'매년' })[t.repeat.every] + '</span>');
   let acts = '';
@@ -331,10 +337,11 @@ function rowHtml(t, _i, noCat) {   // noCat: 분야별로 묶인 곳에서는 �
     acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'adopt\')" title="시작할 날을 정해 예정 업무로">날짜 정해 시작</button>';
   }
   else if (!done) {
-    if (b.col === 'todo') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'ing\')" title="시작일을 오늘로">지금 시작</button>';
+    if (b.col === 'call') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'recall\')" title="통화 날짜·시각 바꾸기">다시 잡기</button>';
+    else if (b.col === 'todo') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'ing\')" title="시작일을 오늘로">지금 시작</button>';
     else if (t.status === 'waiting') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'ing\')">기다림 끝</button>';
     else acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'waiting\')">기다림</button>';
-    acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'postpone\')" title="시작일 미루기">미루기</button>';
+    if (b.col !== 'call') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'postpone\')" title="시작일 미루기">미루기</button>';
   }
   const click = numbered && !trash ? 'onclick="openTask(\'' + id + '\')"' : 'onclick="openEdit(\'' + id + '\')"';
   return '<div class="row' + (b.alert ? ' alert' : '') + (t.priority === 'high' && !done ? ' urgent' : '') + (done ? ' done' : '') + '">'
@@ -375,13 +382,15 @@ function render() {
   if (!started) return;
   const el = document.getElementById('view');
   const all = withBucket(live());
-  const g = { ing: [], todo: [], idea: [], done: [] };
+  const g = { call: [], ing: [], todo: [], idea: [], done: [] };
   all.forEach(t => (g[t._b.col] || g.done).push(t));
-  g.ing.sort(sortIng); g.todo.sort(sortTodo); g.idea.sort(sortIdea); g.done.sort(sortDone);
+  g.call.sort(sortCall); g.ing.sort(sortIng); g.todo.sort(sortTodo); g.idea.sort(sortIdea); g.done.sort(sortDone);
   const today = core.kstToday();
   const recent = g.done.filter(t => doneDay(t) >= core.addDays(today, -6));
   const alerts = g.ing.filter(t => t._b.alert).length + g.todo.filter(t => t._b.alert).length;
+  const missed = g.call.filter(t => t._b.alert).length, callsToday = g.call.filter(t => t._b.days === 0).length;
   const counts = '<div class="counts">'
+    + '<div><b style="color:' + (missed ? 'var(--danger)' : 'var(--call)') + '">' + (callsToday + missed) + '</b><span>' + (missed ? '📞 오늘·놓친 통화' : '📞 오늘 통화') + '</span></div>'
     + '<div><b style="color:var(--ing)">' + g.ing.length + '</b><span>진행 업무</span></div>'
     + '<div><b style="color:var(--todo)">' + g.todo.length + '</b><span>예정 업무</span></div>'
     + '<div><b style="color:var(--idea)">' + g.idea.length + '</b><span>💡 제안 업무</span></div>'
@@ -394,12 +403,13 @@ function render() {
 
   if (view === 'today') {
     el.innerHTML = counts + warn
+      + section('📞 통화', '언제 몇 시에 누구에게 · 날짜 지나도 안 한 통화는 빨갛게 · 끝나면 ✓', g.call, true, 'c-call')
       + section('🟠 진행 업무', '시작일이 온 일 · 며칠째인지 · 업무 분야별', g.ing, true, 'c-ing', true)
       + section('🔵 예정 업무', '시작일이 아직 · 그날이 되면 위로 올라감', g.todo, true, 'c-todo', true)
       + section('💡 제안 업무', '업체가 맡기기 전, 우리가 먼저 제안할 일 · 맡게 되면 「지금 시작」', g.idea, true, 'c-idea', true)
       + section('✅ 완료 업무', '최근 7일 · 전체는 「완료·휴지통」', recent, recent.length <= 8, 'c-done');
   } else if (view === 'company') {
-    const open = all.filter(t => t._b.col === 'ing' || t._b.col === 'todo' || t._b.col === 'idea');   // 기업별에는 제안거리도 같이
+    const open = all.filter(t => ['call', 'ing', 'todo', 'idea'].includes(t._b.col));   // 기업별에는 통화·제안거리도 같이
     const groups = {};
     open.forEach(t => { const k = t.bizno || '_none'; (groups[k] = groups[k] || []).push(t); });
     const alertN = k => groups[k].filter(t => t._b.alert).length;
@@ -408,8 +418,8 @@ function render() {
       return alertN(b) - alertN(a) || groups[b].length - groups[a].length;
     });
     el.innerHTML = counts + warn + (keys.length ? keys.map(k => {
-      const ord = { ing: 0, todo: 1, idea: 2 };
-      const list = groups[k].sort((a, b) => (a._b.col === b._b.col ? (a._b.col === 'ing' ? sortIng(a, b) : a._b.col === 'idea' ? sortIdea(a, b) : sortTodo(a, b)) : ord[a._b.col] - ord[b._b.col]));
+      const ord = { call: 0, ing: 1, todo: 2, idea: 3 };
+      const list = groups[k].sort((a, b) => (a._b.col === b._b.col ? (a._b.col === 'ing' ? sortIng(a, b) : a._b.col === 'call' ? sortCall(a, b) : a._b.col === 'idea' ? sortIdea(a, b) : sortTodo(a, b)) : ord[a._b.col] - ord[b._b.col]));
       const n = alertN(k), ideas = list.filter(t => t._b.col === 'idea').length;
       return section(k === '_none' ? '기업 연결 없음' : '🏢 ' + esc(shortCo(list[0].companyName)), (n ? '<span style="color:var(--danger)">빨간 표시 ' + n + '</span> ' : '') + (ideas ? '<span style="color:var(--idea)">💡 제안 ' + ideas + '</span>' : ''), list);
     }).join('') : '<div class="sec"><div class="empty">열린 할 일이 없습니다</div></div>');
@@ -422,9 +432,10 @@ function render() {
     const item = (t, kind) => '<div class="it ' + kind + '" onclick="openTask(\'' + esc(t._id) + '\')">' + (kind === 'start' ? '▶ ' : '⏰ ') + (t.companyName ? '<b>' + esc(shortCo(t.companyName)) + '</b> ' : '') + esc(textOf(t)) + '</div>';
     const doneOn = d => g.done.filter(t => t.status === 'done' && doneDay(t) === d);
     el.innerHTML = '<div class="weeknav"><button class="btn sm" onclick="weekMove(-1)">◀</button><button class="btn sm" onclick="weekMove(0)">이번 주</button><button class="btn sm" onclick="weekMove(1)">▶</button>'
-      + '<b style="margin-left:6px">' + md(days[0]) + ' ~ ' + md(days[6]) + '</b><span class="info" style="margin:0 0 0 auto">▶ 시작 · ⏰ 마감 · ✓ 완료</span></div>'
+      + '<b style="margin-left:6px">' + md(days[0]) + ' ~ ' + md(days[6]) + '</b><span class="info" style="margin:0 0 0 auto">📞 통화 · ▶ 시작 · ⏰ 마감 · ✓ 완료</span></div>'
       + (over.length ? section('🔴 마감 지남', '', over) : '')
       + '<div class="week">' + days.map((d, i) => '<div class="day' + (d === today ? ' today' : '') + '"><h3>' + '월화수목금토일'[i] + ' ' + md(d) + '</h3>'
+        + g.call.filter(t => t._start === d).map(t => '<div class="it call' + (t._b.alert ? ' due' : '') + '" onclick="openTask(\'' + esc(t._id) + '\')">📞 ' + (t.callTime ? esc(t.callTime) + ' ' : '') + (t.companyName ? '<b>' + esc(shortCo(t.companyName)) + '</b> ' : '') + esc(textOf(t)) + '</div>').join('')
         + open.filter(t => t._start === d && d >= today).sort(sortTodo).map(t => item(t, 'start')).join('')
         + open.filter(t => t.dueDate === d).sort(sortIng).map(t => item(t, 'due')).join('')
         + doneOn(d).map(t => '<div class="it fin" onclick="openTask(\'' + esc(t._id) + '\')">✓ ' + esc(textOf(t)) + '</div>').join('')
@@ -459,6 +470,10 @@ async function act(id, what) {
     else if (what === 'waiting') {
       const w = prompt('무엇을 기다리나요? (예: 고객 서류 회신, 심사원 일정)', t.waitingFor || ''); if (w === null) return;
       await api('PATCH', '/api/todos/' + L, { status: 'waiting', waitingFor: w });
+    } else if (what === 'recall') {   // 통화 다시 잡기 — 날짜·시각
+      const d = prompt('언제 통화할까요? 날짜 (예: 내일, 10/20)', core.addDays(core.kstToday(), 1)); if (d === null) return;
+      const tm = prompt('몇 시에? (예: 14:00, 오후 2시 · 비우면 시간 미정)', t.callTime || ''); if (tm === null) return;
+      await api('PATCH', '/api/todos/' + L, { start: d, time: tm }); toast(L + ' 통화 다시 잡음');
     } else if (what === 'postpone') {
       const s = core.startOf(t);
       const base = s > core.kstToday() ? s : core.kstToday();
@@ -528,6 +543,9 @@ async function submitDone(id) {
 
 // ── 빠른 입력: 글 속 날짜·기업 찾기 ── 「…부터」·그냥 날짜 = 시작일, 「…까지」 = 마감. 기업은 쓰기 창구가 글에서 찾아 연결
 const DATE_RE = /(20\d{2}[-.\/]\s*\d{1,2}[-.\/]\s*\d{1,2}|\d{1,2}\s*월\s*\d{1,2}\s*일|\d{1,2}\/\d{1,2}|오늘|내일|모레|글피)(\s*부터|\s*까지)?/;
+// 「통화·전화·콜」이 들어 있으면 📞 통화 — 「2시」「오후 3시 반」「14:00」 같은 시각을 뽑는다
+const CALL_RE = /통화|전화|콜백/;
+const TIME_RE = /((?:오전|오후)\s*)?(\d{1,2}\s*:\s*\d{2}|\d{1,2}\s*시(?:\s*(?:반|\d{1,2}\s*분))?)(\s*에)?/;
 const IDEA_RE = /^(?:💡\s*|제안\s*[:：)]?\s+)/;   // 맨 앞 「제안 」·「💡」 = 제안 업무
 function parseQuick(raw) {
   let text = String(raw || '').trim(), start = '', due = '';
@@ -538,17 +556,22 @@ function parseQuick(raw) {
     if (/까지/.test(m[2] || '')) { if (due) break; due = d; } else { if (start) break; start = d; }
     text = (text.slice(0, m.index) + ' ' + text.slice(m.index + m[0].length)).replace(/\s{2,}/g, ' ').trim();
   }
+  let time = '', call = !idea && CALL_RE.test(text);
+  if (call) {
+    const m = text.match(TIME_RE);
+    if (m) { try { time = core.parseCallTime((m[1] || '') + m[2]); text = (text.slice(0, m.index) + ' ' + text.slice(m.index + m[0].length)).replace(/\s{2,}/g, ' ').trim(); } catch { time = ''; } }
+  }
   const co = core.findCompanyInText(text, companies);
   // 제안 업무도 적은 날짜는 그대로(「11/2부터」 시작일 · 「10/30까지」 종료일) — 날짜가 없으면 비워 둔다
-  return { text: text || String(raw).trim(), start, due, co, idea };
+  return { text: text || String(raw).trim(), start, due, co, idea, call, time };
 }
 function quickHint() {
   const v = document.getElementById('quick').value, el = document.getElementById('quick-hint');
-  if (!v.trim()) { el.textContent = 'Enter로 저장. 시작일은 오늘 — 「내일부터」「10/20」이면 그날 시작(예정 업무), 「10/30까지」는 마감. 맨 앞에 「제안」을 쓰면 💡 제안 업무(날짜는 적었을 때만). 기업명은 알아서 연결합니다.'; return; }
+  if (!v.trim()) { el.textContent = 'Enter로 저장. 시작일은 오늘 — 「내일부터」「10/20」이면 그날 시작(예정 업무), 「10/30까지」는 마감. 맨 앞에 「제안」을 쓰면 💡 제안 업무(날짜는 적었을 때만). 「내일 2시 ○○ 통화」는 📞 통화. 기업명은 알아서 연결합니다.'; return; }
   const p = parseQuick(v);
   const today = core.kstToday();
   el.innerHTML = '→ ' + (p.co ? '🏢 <b>' + esc(p.co.name) + '</b>' : '기업 없음')
-    + ' · ' + (p.idea ? '💡 <b>제안 업무</b>' : p.start && p.start > today ? '🔵 예정 업무 <b>' + p.start + ' 시작</b>' : '🟠 진행 업무 (오늘 시작)')
+    + ' · ' + (p.call ? '📞 <b>통화</b> ' + (p.start || today) + ' ' + (p.time || '시간 미정') : p.idea ? '💡 <b>제안 업무</b>' : p.start && p.start > today ? '🔵 예정 업무 <b>' + p.start + ' 시작</b>' : '🟠 진행 업무 (오늘 시작)')
     + (p.idea && p.start ? ' · 시작 <b>' + p.start + '</b>' : '')
     + (p.due ? (p.idea ? ' · 종료 <b>' : ' · ⏰ 마감 <b>') + p.due + '</b>' : '');
 }
@@ -557,6 +580,7 @@ async function quickAdd() {
   const p = parseQuick(raw);
   try {
     const body = { text: p.text }; if (p.start) body.start = p.start; if (p.due) body.due = p.due; if (p.idea) body.status = 'idea';
+    if (p.call) { body.kind = 'call'; if (p.time) body.time = p.time; }
     const r = await api('POST', '/api/todos', body);
     inp.value = ''; quickHint(); toast(esc(r.label) + ' 추가됨'); inp.focus();
   } catch (e) { fail(e); }
@@ -592,7 +616,7 @@ function openEdit(id) {
     + '</div>'
     + '<div class="grid2">'
       + '<div class="fg"><label>반복 (완료하면 다음 회차가 생김)</label><select id="f-rep">' + opt([['', '반복 안 함'], ['week', '매주'], ['month', '매월'], ['year', '매년']], rep) + '</select></div>'
-      + '<div class="fg"></div>'
+      + '<div class="fg"><label>📞 통화 시각 (넣으면 통화 · 날짜는 시작일)</label><input id="f-time" value="' + v('callTime') + '" placeholder="예: 14:00, 오후 2시"></div>'
     + '</div>'
     + '<div class="fg"><label>메모</label><textarea id="f-memo">' + v('memo') + '</textarea></div>'
     + (t ? '<div class="info">생긴 곳: ' + esc(SRC[t.source] || t.source || '—') + ' · 적은 사람 ' + esc(t.createdBy || '—')
@@ -628,7 +652,7 @@ function formValues() {
   const rep = val('f-rep');
   return {
     text: val('f-text').trim(), company: m ? m[1] : coRaw, status: val('f-status'), startDate: val('f-start'), dueDate: val('f-due'),
-    waitingFor: val('f-wf').trim(), kind: val('f-kind'), category: val('f-cat'), priority: document.getElementById('f-hi').checked ? 'high' : '',
+    waitingFor: val('f-wf').trim(), kind: val('f-kind'), callTime: val('f-time').trim(), category: val('f-cat'), priority: document.getElementById('f-hi').checked ? 'high' : '',
     memo: val('f-memo').trim(), repeat: rep ? { every: rep, n: 1 } : null,
   };
 }
@@ -637,12 +661,12 @@ async function saveEdit(id) {
   if (!f.text) { toast('할 일 내용을 적어 주세요', true); return; }
   try {
     if (!id) {
-      const body = { ...f }; if (!body.company) delete body.company; if (!body.repeat) delete body.repeat; if (!body.startDate) delete body.startDate;
+      const body = { ...f }; if (!body.company) delete body.company; if (!body.repeat) delete body.repeat; if (!body.startDate) delete body.startDate; if (!body.callTime) delete body.callTime;
       const r = await api('POST', '/api/todos', body); toast(esc(r.label) + ' 추가됨');
     } else {
       const t = todos.find(x => x._id === id);
       const patch = {};
-      for (const k of ['text', 'status', 'dueDate', 'waitingFor', 'kind', 'category', 'priority', 'memo']) if ((t[k] || '') !== (f[k] || '')) patch[k] = f[k];
+      for (const k of ['text', 'status', 'dueDate', 'waitingFor', 'kind', 'callTime', 'category', 'priority', 'memo']) if ((t[k] || '') !== (f[k] || '')) patch[k] = f[k];
       if (t.status === 'ing' && f.status === 'wait') delete patch.status;            // 진행(ing·wait)은 같은 칸
       if (f.startDate !== core.startOf(t) && (f.startDate || f.status === 'idea')) patch.startDate = f.startDate;   // 제안은 시작일을 비울 수도 있다
       if (document.getElementById('f-co').value.trim() !== coValue(t)) patch.company = f.company;   // 기업 칸을 손댔을 때만
