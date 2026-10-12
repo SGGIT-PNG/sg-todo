@@ -408,3 +408,19 @@ test('업무 분야(중분류) — 이름으로 와도 id로', async () => {
   await createTodo(ctxOf(db), { text: '중진공 서류', category: '정책자금' });
   assert.equal(db.store.get('todos/T-0001').category, 'policy');
 });
+
+test('제안을 취소·완료했다가 다시 열면 제안으로 돌아감 · 옛 분야 값(「ISO」)도 제 분야로', async () => {
+  const db = seed();
+  await createTodo(ctxOf(db), { text: 'ISO 인증 제안', status: 'idea' });
+  await updateTodo(ctxOf(db), 'T-0001', { status: 'cancel' });
+  assert.equal(db.store.get('todos/T-0001').fromIdea, true);
+  const r = await updateTodo(ctxOf(db), 'T-0001', { status: 'wait' });   // 웹 「다시 열기」
+  assert.equal(r.todo.status, 'idea'); assert.equal(db.store.get('todos/T-0001').fromIdea, null);
+  assert.equal(core.bucket(db.store.get('todos/T-0001'), core.RULES_DEFAULT, NOW).col, 'idea');
+  // 제안을 맡았다가(진행) 완료 → 다시 열면 보통 할 일
+  await updateTodo(ctxOf(db), 'T-0001', { status: 'ing' });
+  await completeTodo(ctxOf(db), 'T-0001');
+  assert.ok(!db.store.get('todos/T-0001').fromIdea);
+  assert.equal((await updateTodo(ctxOf(db), 'T-0001', { status: 'wait' })).todo.status, 'wait');
+  assert.equal(core.normCategory('ISO'), 'iso');
+});

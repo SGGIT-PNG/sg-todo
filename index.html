@@ -321,7 +321,7 @@ function rowHtml(t, _i, noCat) {   // noCat: 분야별로 묶인 곳에서는 �
   if (t.companyName) chips.push('<span class="chip co">🏢 ' + esc(shortCo(t.companyName)) + '</span>');
   (b.tags || []).forEach(x => chips.push('<span class="chip ' + (TONE[x.tone] || '') + '">' + esc(x.t) + '</span>'));
   if (t.kind && core.KIND_LABEL[t.kind]) chips.push('<span class="chip">' + core.KIND_LABEL[t.kind] + '</span>');
-  if (!noCat && t.category && CATS[t.category]) chips.push('<span class="chip">' + CATS[t.category] + '</span>');
+  if (!noCat && t.category && CATS[core.normCategory(t.category)]) chips.push('<span class="chip">' + CATS[core.normCategory(t.category)] + '</span>');
   if (t.repeat && t.repeat.every) chips.push('<span class="chip">🔁 ' + ({ week:'매주', month:'매월', year:'매년' })[t.repeat.every] + '</span>');
   let acts = '';
   if (!numbered) acts = '<span class="chip" title="관리 → 번호 붙이기 후 쓸 수 있습니다">번호 없음</span>';
@@ -350,7 +350,8 @@ const CAT_ORDER = Object.fromEntries(core.CATEGORIES.map((c, i) => [c[0], i]));
 function groupedRows(list) {
   if (!list.length) return '<div class="empty">없습니다</div>';
   const groups = new Map();
-  list.forEach(t => { const k = CATS[t.category] ? t.category : (t.category ? '_other' : '_none'); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
+  // 「ISO」처럼 이름으로 저장된 옛 값도 제 분야로 (normCategory)
+  list.forEach(t => { const c = core.normCategory(t.category); const k = CATS[c] ? c : (c ? '_other' : '_none'); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
   const hot = k => groups.get(k).some(t => t.priority === 'high') ? 2 : groups.get(k).some(t => t._b && t._b.alert) ? 1 : 0;   // 긴급 묶음 → 빨간 표시 묶음 → 나머지
   const ord = k => k === '_other' ? 90 : k === '_none' ? 99 : CAT_ORDER[k];
   return [...groups.keys()].sort((a, b) => hot(b) - hot(a) || ord(a) - ord(b)).map(k => {
@@ -443,7 +444,7 @@ async function act(id, what) {
   const t = todos.find(x => x._id === id); if (!t || !t.no) return;
   const L = core.noLabel(t.no);
   try {
-    if (what === 'reopen') { await api('PATCH', '/api/todos/' + L, { status: 'wait' }); toast(L + ' 다시 열림'); closeModal(); }
+    if (what === 'reopen') { const r = await api('PATCH', '/api/todos/' + L, { status: 'wait' }); toast(L + (r.todo && r.todo.status === 'idea' ? ' 💡 제안 업무로 되돌림' : ' 다시 열림')); closeModal(); }   // 제안이었던 일은 창구가 제안으로 되돌린다
     else if (what === 'ing') { await api('PATCH', '/api/todos/' + L, { status: 'ing' }); toast(L + ' 하고 있는 업무로'); closeModal(); }
     else if (what === 'adopt') {   // 제안 → 날짜 정해 시작
       const d = prompt('언제부터 시작하나요? (예: 10/20, 내일, +7 · 오늘이면 「오늘」)', t.startDate && t.startDate > core.kstToday() ? t.startDate : '내일'); if (d === null) return;
