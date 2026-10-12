@@ -14,7 +14,7 @@ const INSTRUCTIONS = 'SG솔루션 할 일(T-번호) 도구. 할 일을 넣거나
   + '대화나 프로젝트 지침에 이름이 없으면 먼저 물어본다. 기업은 이름이나 사업자번호로 company에 넣고, 후보가 여럿이라고 하면 사용자에게 골라 달라고 한다. '
   + '번호는 T-0123 형식. 삭제는 휴지통(30일 안에 todo_restore로 되살림). 「안 하기로 한 일」은 삭제가 아니라 status=cancel. '
   + '할 일을 넣을 때 category(업무 분야)를 내용에 맞게 하나 고른다(정책자금·지원사업·벤처·연구소·특허·ISO·자금조달·확인서·재무·기타). 화면이 칸 안을 분야별로 묶는다. '
-  + '할 일은 세 칸 — 하고 있는 업무(시작일이 오늘이거나 지남)·해야 할 업무(시작일이 앞날)·완료 업무. 시작일 기본은 오늘이고, 「내일부터」「다음 주 월요일부터」처럼 말하면 start에 그 날짜를 넣는다. '
+  + '할 일은 세 칸 — 진행 업무(시작일이 오늘이거나 지남)·예정 업무(시작일이 앞날)·완료 업무. 시작일 기본은 오늘이고, 「내일부터」「다음 주 월요일부터」처럼 말하면 start에 그 날짜를 넣는다. '
   + '「어제 끝냈어」처럼 끝낸 날을 말하면 todo_complete의 date에 넣는다. '
   + '제안 업무 = 업체가 맡기지 않았지만 우리가 먼저 제안하려는 일(「하이퍼다인 ISO 인증 제안 예정」) → todo_add status=idea. 제안 업무의 날짜(start 시작일·due 종료일)는 사용자가 말했을 때만 넣고, 먼저 권하지 않는다. 날짜가 있어도 제안 칸에 머문다(시작일이 와도 옮기지 않고, 종료일이 지나도 빨간 표시 없음). 목록은 todo_list view=idea. '
   + '제안해서 실제로 맡게 되면 todo_update status=ing(지금부터) 또는 status=wait+start(그 날부터)로 옮긴다.';
@@ -24,7 +24,7 @@ const AUTHOR = { type: 'string', enum: AUTHORS, description: '누가 하는지 �
 const NOS = { description: '할 일 번호 (T-0123 또는 123). 여러 개면 배열', anyOf: [{ type: 'string' }, { type: 'integer' }, { type: 'array', items: { type: ['string', 'integer'] }, maxItems: 20 }] };
 const NO = { description: '할 일 번호 (T-0123 또는 123)', anyOf: [{ type: 'string' }, { type: 'integer' }] };
 const DUE = { type: 'string', description: '(선택) 마감일 — 꼬리표로만 보임(칸은 시작일로 정함): 2026-10-20 · 10/20 · 10월 20일 · 오늘 · 내일 · 모레 · +7(7일 뒤). 빈 문자열이면 마감 없앰' };
-const START = { type: 'string', description: '시작일 — 이 날이 오면 「하고 있는 업무」로 옮겨 감. 기본 오늘. 「내일부터」=내일, 「다음 주 월요일부터」=그 날짜(YYYY-MM-DD로 계산해서). 형식: 2026-10-20 · 10/20 · 10월 20일 · 오늘 · 내일 · 모레 · +7' };
+const START = { type: 'string', description: '시작일 — 이 날이 오면 「진행 업무」로 옮겨 감. 기본 오늘. 「내일부터」=내일, 「다음 주 월요일부터」=그 날짜(YYYY-MM-DD로 계산해서). 형식: 2026-10-20 · 10/20 · 10월 20일 · 오늘 · 내일 · 모레 · +7' };
 const REPEAT = {
   description: '반복 — 완료하면 다음 회차가 자동으로 생김. 없애려면 null',
   anyOf: [{ type: 'null' }, {
@@ -44,7 +44,7 @@ const FIELDS = {
   waitingFor: { type: 'string', description: '기다리는 대상 (예: 「고객 서류 회신」)' },
   kind: { type: 'string', enum: ['', ...KINDS], description: 'call 전화 · doc 서류 · apply 신청 · visit 방문 · chase 독촉 · internal 내부' },
   category: { type: 'string', enum: ['', ...CATEGORIES.map(c => c[0])], description: '업무 분야(중분류 — 화면이 이걸로 묶는다). 넣을 때 내용을 보고 하나 고른다: ' + CATEGORIES.map(([id, , nm]) => id + ' ' + nm).join(' · ') + '. 업체 일반 서류·견적·연락 등은 etc' },
-  priority: { type: 'string', enum: ['', 'high'], description: 'high = 긴급(★, 하고 있는 업무 맨 위)' },
+  priority: { type: 'string', enum: ['', 'high'], description: 'high = 긴급(★, 진행 업무 맨 위)' },
   memo: { type: 'string', description: '메모 전체 (바꾸면 덮어씀 — 덧붙일 때는 memoAppend)' },
   repeat: REPEAT,
 };
@@ -75,7 +75,7 @@ export const TOOLS = [
   },
   {
     name: 'todo_list', title: '할 일 목록',
-    description: '할 일 목록 — 웹 화면과 같은 칸. open = 하고 있는 업무+해야 할 업무, idea = 제안 업무, all = open+제안(기업별로 볼 때), ing = 하고 있는 업무(시작일 지남, N일째), todo = 해야 할 업무(시작 전, D-n), done = 완료 업무(최근 순), alert = 빨간 표시(마감 지남·14일 넘게 끈 일), waiting = 기다리는 중 꼬리표, week = 7일 안 마감, trash = 휴지통.',
+    description: '할 일 목록 — 웹 화면과 같은 칸. open = 진행 업무+예정 업무, idea = 제안 업무, all = open+제안(기업별로 볼 때), ing = 진행 업무(시작일 지남, N일째), todo = 예정 업무(시작 전, D-n), done = 완료 업무(최근 순), alert = 빨간 표시(마감 지남·14일 넘게 끈 일), waiting = 기다리는 중 꼬리표, week = 7일 안 마감, trash = 휴지통.',
     inputSchema: { type: 'object', properties: {
       view: { type: 'string', enum: ['open', 'ing', 'todo', 'idea', 'all', 'done', 'alert', 'waiting', 'week', 'trash'], description: '기본 open' },
       company: { type: 'string', description: '기업 이름(일부) 또는 사업자번호로 거르기' },
@@ -123,7 +123,7 @@ export const TOOLS = [
 
 // ── 보여 주는 글 ──
 const catTxt = (c) => c ? ' {' + (CAT_LABEL[c] || c) + '}' : '';
-const SHORT = { ing: '하는 중', todo: '할 일', idea: '💡 제안', done: '완료', trash: '휴지통' };
+const SHORT = { ing: '진행', todo: '예정', idea: '💡 제안', done: '완료', trash: '휴지통' };
 const md = (ds) => ds ? ds.slice(5).replace('-', '/') : '';
 function line(r) {
   const tag = SHORT[r.col] + (r.reason ? ' · ' + r.reason : '') + (r.alert ? ' 🔴' : '');
@@ -177,7 +177,7 @@ export async function callTool(name, args, { db, email, nowMs }) {
       const r = await createTodo(ctx, fields, ref ? { source: 'chat', sourceRef: String(ref) } : { source: 'chat', checkRecentDup: true });
       const t = r.todo;
       const today = kstToday(nowMs);
-      const where = t.status === 'idea' ? ' · 💡 제안 업무' + (t.startDate ? '(시작 ' + t.startDate + ')' : '') : t.startDate > today ? ' · 해야 할 업무(' + t.startDate + ' 시작)' : ' · 하고 있는 업무';
+      const where = t.status === 'idea' ? ' · 💡 제안 업무' + (t.startDate ? '(시작 ' + t.startDate + ')' : '') : t.startDate > today ? ' · 예정 업무(' + t.startDate + ' 시작)' : ' · 진행 업무';
       const tail = (t.companyName ? ' · ' + t.companyName : '') + where + (t.dueDate ? (t.status === 'idea' ? ' · 종료 ' : ' · 마감 ') + t.dueDate : '') + (t.status === 'waiting' ? ' · 기다리는 중' : '') + (t.priority === 'high' ? ' · 긴급' : '');
       return r.created ? r.label + ' 저장됨' + tail + ' — ' + t.text : '이미 있는 할 일이라 새로 만들지 않았습니다: ' + r.label + tail + ' — ' + t.text;
     }
@@ -203,7 +203,7 @@ export async function callTool(name, args, { db, email, nowMs }) {
     }
     case 'todo_list': {
       const r = await listTodos(db, { view: rest.view || 'open', company: rest.company || '', category: rest.category || '', query: rest.query || '', limit: Number(rest.limit) || 30 }, nowMs);
-      const names = { open: '하고 있는 업무 + 해야 할 업무', all: '하고 있는 + 해야 할 + 제안 업무', idea: COL_LABEL.idea, ing: COL_LABEL.ing, todo: COL_LABEL.todo, done: COL_LABEL.done + '(최근 순)', alert: '빨간 표시(마감 지남·오래 끈 일)', waiting: '기다리는 중', week: '7일 안 마감', trash: '휴지통' };
+      const names = { open: '진행 업무 + 예정 업무', all: '진행 + 예정 + 제안 업무', idea: COL_LABEL.idea, ing: COL_LABEL.ing, todo: COL_LABEL.todo, done: COL_LABEL.done + '(최근 순)', alert: '빨간 표시(마감 지남·오래 끈 일)', waiting: '기다리는 중', week: '7일 안 마감', trash: '휴지통' };
       const head = names[r.view] + ' ' + r.total + '건' + (r.items.length < r.total ? ' (앞 ' + r.items.length + '건)' : '') + ' · 오늘 ' + kstToday(nowMs);
       return r.items.length ? head + '\n' + r.items.map(line).join('\n') : head + '\n(없음)';
     }

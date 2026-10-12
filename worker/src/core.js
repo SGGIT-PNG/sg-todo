@@ -4,13 +4,13 @@
 
 export const STATUSES = ['wait', 'ing', 'waiting', 'idea', 'done', 'cancel'];
 export const STATUS_LABEL = { wait: '진행', ing: '진행', waiting: '기다리는 중', idea: '제안', done: '완료', cancel: '취소' };
-// 칸 — 시작일이 오면 하고 있는 업무, 아직이면 해야 할 업무, 끝나면 완료 (2026-10-11 사장님 지시)
+// 칸 — 시작일이 오면 진행 업무, 아직이면 예정 업무, 끝나면 완료 (2026-10-11 사장님 지시)
 //   + 제안 업무(status idea): 업체와 상관없이 우리가 먼저 제안하려는 일. 시작일과 상관없이 이 칸에 머물고,
-//     실제로 맡으면(status ing/wait) 하고 있는·해야 할 업무로 옮겨 간다
+//     실제로 맡으면(status ing/wait) 하고 있는·예정 업무로 옮겨 간다
 //     제안의 시작일·종료일(마감)은 사람이 넣을 때만 저장하고 보여 주기만 한다 (2026-10-12 사장님 지시 — A안)
 //     등록한 날로 저절로 채우지 않고, 날짜가 와도 제안 칸에 머물며, 종료일이 지나도 빨간 표시 없이 회색 「종료일 지남」
 export const COLS = ['ing', 'todo', 'idea', 'done'];
-export const COL_LABEL = { ing: '하고 있는 업무', todo: '해야 할 업무', idea: '제안 업무', done: '완료 업무', trash: '휴지통' };
+export const COL_LABEL = { ing: '진행 업무', todo: '예정 업무', idea: '제안 업무', done: '완료 업무', trash: '휴지통' };
 export const KINDS = ['call', 'doc', 'apply', 'visit', 'chase', 'internal'];
 export const KIND_LABEL = { call: '전화', doc: '서류', apply: '신청', visit: '방문', chase: '독촉', internal: '내부' };
 // 업무 분야(중분류) — SGCRM DEFAULT_CAT_META와 같은 id. 화면은 칸 안을 이 순서로 묶는다 (2026-10-12)
@@ -216,7 +216,7 @@ export function cleanPatch(patch, { nowMs = Date.now(), creating = false } = {})
   }
   const dueIn = 'due' in patch ? patch.due : patch.dueDate;
   if ('due' in patch || 'dueDate' in patch) out.dueDate = parseDue(dueIn ?? '', nowMs);
-  // 시작일 — 이 날이 오면 「하고 있는 업무」로 옮겨 간다. 빈 값('')은 「비움」 — 제안 업무면 비워 두고, 아니면 applyChange·newTodo가 오늘로 채운다
+  // 시작일 — 이 날이 오면 「진행 업무」로 옮겨 간다. 빈 값('')은 「비움」 — 제안 업무면 비워 두고, 아니면 applyChange·newTodo가 오늘로 채운다
   const startIn = 'start' in patch ? patch.start : patch.startDate;
   if ('start' in patch || 'startDate' in patch) out.startDate = startIn === '' || startIn === null || startIn === undefined ? '' : parseDue(startIn, nowMs);
   // 완료한 날 — 넣으면 완료로 바꾸고 그날을 완료일로
