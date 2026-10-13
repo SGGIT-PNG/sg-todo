@@ -44,12 +44,12 @@ test('세 칸 계산 — 시작일만 보고, 나머지는 꼬리표', () => {
   const b = (t) => core.bucket(Object.assign({ createdAt: NOW - DAY, statusAt: NOW - DAY, status: 'wait' }, t), core.RULES_DEFAULT, NOW);
   assert.equal(b({ startDate: '2026-10-08' }).col, 'ing');
   assert.equal(b({ startDate: '2026-10-08' }).reason, '오늘 시작');
-  assert.equal(b({ startDate: '2026-10-06' }).reason, '3일째');
+  assert.equal(b({ startDate: '2026-10-06' }).reason, '+2일');
   assert.equal(b({ startDate: '2026-10-09' }).col, 'todo');
-  assert.equal(b({ startDate: '2026-10-09' }).reason, '내일 시작');
-  assert.equal(b({ startDate: '2026-10-13' }).reason, 'D-5');
+  assert.equal(b({ startDate: '2026-10-09' }).reason, '-1일');
+  assert.equal(b({ startDate: '2026-10-13' }).reason, '-5일');
   assert.equal(b({}).col, 'ing');                                          // 시작일 없으면 등록한 날(어제) → 2일째
-  assert.equal(b({}).reason, '2일째');
+  assert.equal(b({}).reason, '+1일');
   // 마감은 꼬리표 — 지나면 빨강, 3일 안이면 주황
   const late = b({ startDate: '2026-10-01', dueDate: '2026-10-05' });
   assert.equal(late.col, 'ing'); assert.equal(late.alert, true); assert.deepEqual(late.tags, [{ t: '마감 3일 지남', tone: 'red' }]);
@@ -113,7 +113,7 @@ test('시작일 채우기 — 미리보기·적용·두 번 돌려도 안전', a
   const pv = await migrateStartPreview(db, NOW);
   assert.equal(pv.count, 2); assert.equal(pv.already, 2);
   assert.deepEqual(pv.items.map(i => [i.label, i.startDate, i.col]), [['T-0001', '2026-09-01', 'ing'], ['T-0002', '2026-10-08', 'ing']]);
-  assert.equal(pv.items[0].reason, '38일째 · 마감 D-54');
+  assert.equal(pv.items[0].reason, '+37일 · 마감 D-54');
   assert.equal(db.store.get('todos/T-0001').startDate, undefined);       // 미리보기는 쓰지 않음
   const r = await migrateStartApply(ctxOf(db));
   assert.equal(r.applied, 2);

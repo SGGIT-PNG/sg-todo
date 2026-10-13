@@ -351,10 +351,10 @@ function rowHtml(t, _i, noCat) {   // noCat: 분야별로 묶인 곳에서는 �
   const id = esc(t._id), numbered = !!t.no;
   const done = b.col === 'done', trash = b.col === 'trash';
   const chips = [];
-  // 앞머리: 진행 업무 = N일째, 예정 업무 = D-n, 완료 = 완료한 날
+  // 앞머리: 진행 업무 = 오늘 시작·+N일, 예정 업무 = -N일, 완료 = 완료한 날
   let head = '';
-  if (b.col === 'ing') head = '<span class="days' + (b.alert ? ' alert' : '') + '">' + (b.days === 1 ? '오늘 시작' : b.days + '일째') + '</span>';
-  else if (b.col === 'todo') head = '<span class="days todo">' + (b.days === 1 ? '내일 시작' : 'D-' + b.days) + '</span><span style="color:var(--text3)">' + md(t._start || core.startOf(t)) + ' 시작</span>';
+  if (b.col === 'ing') head = '<span class="days' + (b.alert ? ' alert' : '') + '">' + core.dayTag('ing', b.days) + '</span>';
+  else if (b.col === 'todo') head = '<span class="days todo">' + core.dayTag('todo', b.days) + '</span><span style="color:var(--text3)">' + md(t._start || core.startOf(t)) + ' 시작</span>';
   else if (b.col === 'call') head = '<span class="days call' + (b.alert ? ' alert' : '') + '">📞 ' + (b.alert ? '놓친 통화 ' + md(t._start || core.startOf(t)) : b.days === 0 ? '오늘' : b.days === 1 ? '내일' : md(t._start || core.startOf(t))) + ' ' + (t.callTime ? esc(t.callTime) : '시간 미정') + '</span>';
   else if (b.col === 'idea') head = '<span class="days idea">💡 제안</span><span style="color:var(--text4)">' + (b.days === 0 ? '오늘 등록' : '등록 ' + b.days + '일 전') + '</span>';
   else if (done && t.status !== 'cancel') head = '<span class="days done">' + (doneDay(t) ? md(doneDay(t)) + ' 완료' : '완료') + '</span>';
@@ -664,7 +664,7 @@ function openTask(id) {
   if (b.col === 'idea') { openIdea(t, b); return; }
   const done = b.col === 'done';
   const today = core.kstToday();
-  const meta = [label(t), t.companyName ? '🏢 ' + esc(shortCo(t.companyName)) : '', '시작 ' + md(core.startOf(t)) + (b.col === 'ing' ? ' (' + (b.days === 1 ? '오늘' : b.days + '일째') + ')' : b.col === 'todo' ? ' (D-' + b.days + ')' : ''),
+  const meta = [label(t), t.companyName ? '🏢 ' + esc(shortCo(t.companyName)) : '', '시작 ' + md(core.startOf(t)) + (b.col === 'ing' || b.col === 'todo' ? ' (' + core.dayTag(b.col, b.days) + ')' : ''),
     t.dueDate ? '마감 ' + md(t.dueDate) : ''].filter(Boolean).join(' · ');
   openModal('<h3>' + (done ? '✅ 완료한 업무' : '✔️ 업무 완료') + '</h3>'
     + '<div class="task-head"><div class="t">' + (t.priority === 'high' ? '<span class="star">★</span>' : '') + esc(textOf(t)) + '</div><div class="meta">' + meta + '</div>'

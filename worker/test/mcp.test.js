@@ -172,7 +172,7 @@ test('MCP 도구 — 추가·완료·수정·조회·바뀐 것·삭제·되살�
   r = await tool('todo_add', { text: '현장 방문', start: '내일', author: '김학미' });
   assert.match(r.text, /^T-0003 저장됨 · 예정 업무\(2026-10-09 시작\)/);
   r = await tool('todo_list', { view: 'todo' });
-  assert.match(r.text, /예정 업무 1건/); assert.match(r.text, /T-0003 \[예정 · 내일 시작\] 현장 방문 \(10\/09 시작\) · 김학미/);
+  assert.match(r.text, /예정 업무 1건/); assert.match(r.text, /T-0003 \[예정 · -1일\] 현장 방문 \(10\/09 시작\) · 김학미/);
   r = await tool('todo_delete', { no: 'T-0003', reason: '시험', author: '김학미' });
   // 수정 — 기다림
   r = await tool('todo_update', { no: 'T-0001', status: 'waiting', waitingFor: '고객 서류 회신', due: '10/15', author: '김학미' });
