@@ -194,7 +194,7 @@ function parseTime(v) {
 
 // 저장 모양의 extras({q,a}) → 쌍([q,a])
 const extrasPairs = (l) => (l.extras || []).map(e => Array.isArray(e) ? e : [e.q, e.a]);
-// 사장님이 보는 항목(10/13): 이름 · 지역(city) · 양식 이름(form_name) · 사업자 유형 · 업종 — 질문 이름이 조금 달라도 찾는다
+// 사장님이 보는 항목(10/13): 이름 · 회사(company_name) · 지역(city) · 양식 이름(form_name) · 사업자 유형 · 업종 — 질문 이름이 조금 달라도 찾는다
 const PICK = { city: /^(city|지역|도시|소재지|시\s*\/?\s*군|주소)/i, bizType: /사업자\s*(유형|구분|형태)/, industry: /^(업종|업태|industry)/i };
 export function leadPick(extras, key) {
   const hit = (extras || []).map(e => Array.isArray(e) ? e : [e.q, e.a]).find(([q]) => PICK[key].test(String(q || '').trim()));
@@ -213,8 +213,8 @@ export function presentLead(l, nowMs = Date.now()) {
 }
 export function leadLine(p) {
   const info = [p.city, p.bizType, p.industry].filter(Boolean).join(' · ');
-  return p.label + ' [' + p.productLabel + ' · ' + p.reason + (p.alert ? ' 🔴' : '') + '] ' + (p.name || '(이름 없음)') + (p.phone ? ' ☎ ' + p.phone : '')
-    + (info ? ' — ' + info : '') + (p.formName ? ' 〔' + p.formName + '〕' : '') + (p.company ? ' (회사 ' + p.company + ')' : '');
+  return p.label + ' [' + p.productLabel + ' · ' + p.reason + (p.alert ? ' 🔴' : '') + '] ' + (p.name || '(이름 없음)') + (p.company ? ' · ' + p.company : '') + (p.phone ? ' ☎ ' + p.phone : '')
+    + (info ? ' — ' + info : '') + (p.formName ? ' 〔' + p.formName + '〕' : '');
 }
 
 const activityPath = (nowMs) => 'activity/' + nowMs + '-' + Math.random().toString(36).slice(2, 10);
