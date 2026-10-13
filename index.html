@@ -85,6 +85,19 @@ main{max-width:1180px;margin:0 auto;padding:14px 16px 80px;display:grid;grid-tem
 .pfilter{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
 .pfilter button{border:1px solid var(--border2);background:#fff;border-radius:999px;padding:4px 11px;font-size:12px}
 .pfilter button.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.ld-box{max-height:440px;overflow:auto;scroll-behavior:smooth}
+.ld-r .acts .btn.sm{font-size:11px}
+.ld-grid{display:grid;grid-template-columns:112px minmax(120px,1fr) 96px 78px 58px minmax(130px,1.2fr) 168px;align-items:center;gap:8px}
+.ld-hd{position:sticky;top:0;z-index:1;background:#F1F5F9;font-size:11px;font-weight:700;color:var(--text3);padding:6px 12px;border-bottom:1px solid var(--border)}
+.ld-r{padding:8px 12px;border-bottom:1px solid var(--border);font-size:13px}
+.ld-r:last-child{border-bottom:0}
+.ld-r.alert{box-shadow:inset 3px 0 0 var(--danger)}
+.ld-r.done{opacity:.6}
+.ld-r .fm{font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ld-r .acts{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.ld-r .acts .btn.sm{padding:2px 7px}
+.ld-r .cell{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:900px){.ld-grid{grid-template-columns:1fr 1fr}.ld-hd{display:none}.ld-r .acts{grid-column:1/-1;justify-content:flex-start}}
 .ld-row .nm{font-weight:700}
 .ld-row .ph{color:var(--primary);text-decoration:none;font-variant-numeric:tabular-nums;font-weight:600}
 .ld-row .ex{font-size:12px;color:var(--text3);margin-top:2px}
@@ -478,6 +491,8 @@ function weekMove(n) { weekOffset = n === 0 ? 0 : weekOffset + n; render(); }
 // ── 📣 광고 DB ── Meta 광고 신청자. 5분마다 쓰기 창구가 Meta에서 가져온다(예비: 엑셀 올리기). 규칙은 worker/src/leads.js
 const agoTxt = ms => { if (!ms) return '—'; const m = Math.floor((now() - ms) / 60000); return m < 1 ? '방금' : m < 60 ? m + '분 전' : m < 1440 ? Math.floor(m / 60) + '시간 전' : Math.floor(m / 1440) + '일 전'; };
 const kstHM = ms => new Date(ms + 9 * 3600000).toISOString().slice(5, 16).replace('T', ' ').replace('-', '/');
+// 한 줄 = 신청 · 광고 · 이름(+전화) · 지역 · 사업자 유형 · 업종 · 상태 · 양식 이름 · 버튼 (사장님이 고른 항목 10/13)
+const LD_HEAD = '<div class="ld-grid ld-hd"><span>광고 · 양식 이름</span><span>이름 · 전화</span><span>지역</span><span>사업자 유형</span><span>업종</span><span>상태 · 신청</span><span style="text-align:right">전화 결과</span></div>';
 function leadRow(p) {
   const L = esc(p.label);
   const btn = (a, t, title) => '<button class="btn sm" onclick="leadAct(\'' + L + '\',\'' + a + '\')"' + (title ? ' title="' + title + '"' : '') + '>' + t + '</button>';
@@ -485,15 +500,17 @@ function leadRow(p) {
     : btn('noans', '부재', '안 받음 — 다음 영업일 재통화(3번째면 연락 안 됨)') + btn('talk', '통화됨', '상담 이어감 — 다시 걸 날 정하기') + btn('schedule', '약속', '통화 약속 날짜·시각')
       + btn('won', '전환', '고객 전환 — 진행 업무 할 일이 생김') + btn('lost', '거절', '관심 없음·잘못된 번호');
   const memoLast = (p.memo || '').trim().split('\n').pop();
-  return '<div class="row ld-row' + (p.alert ? ' alert' : '') + (p.col === 'closed' ? ' done' : '') + '">'
-    + '<div class="body" style="flex:1;min-width:0">'
-      + '<div class="t"><span class="pchip ' + esc(p.product) + '">' + esc(p.productLabel) + '</span> <span class="nm">' + esc(p.name || '(이름 없음)') + '</span>'
-        + (p.company ? ' <span style="color:var(--text2)">· ' + esc(p.company) + '</span>' : '')
-        + (p.phone ? ' <a class="ph" href="tel:' + esc(p.phone.replace(/-/g, '')) + '">☎ ' + esc(p.phone) + '</a>' : '') + '</div>'
-      + '<div class="meta"><span class="no">' + L + '</span><span class="why">' + esc(p.reason) + '</span><span style="color:var(--text4)">· 신청 ' + (p.receivedAt ? kstHM(p.receivedAt) : '—') + '</span></div>'
-      + (p.extras.length ? '<div class="ex">' + p.extras.map(([q, a]) => esc(q) + ': <b>' + esc(a) + '</b>').join(' · ') + '</div>' : '')
-      + (memoLast ? '<div class="ex">📝 ' + esc(memoLast) + '</div>' : '')
-    + '</div><div class="acts" style="flex-wrap:wrap;justify-content:flex-end;max-width:260px">' + acts + '</div></div>';
+  const why = p.col === 'new' ? p.reason.replace(/^🆕\s*/, '') : p.reason;
+  return '<div class="ld-grid ld-r' + (p.alert ? ' alert' : '') + (p.col === 'closed' ? ' done' : '') + '" title="' + esc(p.label + (memoLast ? ' · 📝 ' + memoLast : '') + (p.company ? ' · 회사 ' + p.company : '')) + '">'
+    + '<span class="cell"><span class="pchip ' + esc(p.product) + '">' + esc(p.productLabel) + '</span><br><span class="fm">' + esc(p.formName || '—') + '</span></span>'
+    + '<span class="cell"><span class="nm">' + esc(p.name || '(이름 없음)') + '</span>'
+      + (p.phone ? '<br><a class="ph" href="tel:' + esc(p.phone.replace(/-/g, '')) + '">☎ ' + esc(p.phone) + '</a>' : '') + '</span>'
+    + '<span class="cell">' + esc(p.city || '—') + '</span>'
+    + '<span class="cell">' + esc(p.bizType || '—') + '</span>'
+    + '<span class="cell">' + esc(p.industry || '—') + '</span>'
+    + '<span class="cell why" style="font-size:12px;font-weight:700;color:' + (p.alert ? 'var(--danger)' : 'var(--text2)') + '" title="' + esc(why) + '">' + esc(why)
+      + '<br><span style="font-weight:400;color:var(--text3)">' + (memoLast ? '📝 ' + esc(memoLast) : '신청 ' + (p.receivedAt ? kstHM(p.receivedAt) : '—')) + '</span></span>'
+    + '<span class="acts">' + acts + '</span></div>';
 }
 function renderLeads() {
   const all = leads.map(l => LD.presentLead(l, now()));
@@ -510,7 +527,7 @@ function renderLeads() {
   const bad = /^⚠/.test(syncTxt);
   const pcount = k => all.filter(p => p.col !== 'closed' && (!k || p.product === k)).length;
   const sec = (title, sub, arr, cls, open = true) => {
-    const inner = arr.length ? arr.map(leadRow).join('') : '<div class="empty">없습니다</div>';
+    const inner = arr.length ? '<div class="ld-box">' + LD_HEAD + arr.map(leadRow).join('') + '</div>' : '<div class="empty">없습니다</div>';
     return open ? '<div class="sec ' + cls + '"><h2>' + title + ' <small>' + sub + '</small><span class="cnt">' + arr.length + '</span></h2>' + inner + '</div>'
       : '<div class="sec ' + cls + '"><details><summary>' + title + ' (' + arr.length + ') — ' + sub + '</summary>' + inner + '</details></div>';
   };

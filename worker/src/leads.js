@@ -194,6 +194,12 @@ function parseTime(v) {
 
 // 저장 모양의 extras({q,a}) → 쌍([q,a])
 const extrasPairs = (l) => (l.extras || []).map(e => Array.isArray(e) ? e : [e.q, e.a]);
+// 사장님이 보는 항목(10/13): 이름 · 지역(city) · 양식 이름(form_name) · 사업자 유형 · 업종 — 질문 이름이 조금 달라도 찾는다
+const PICK = { city: /^(city|지역|도시|소재지|시\s*\/?\s*군|주소)/i, bizType: /사업자\s*(유형|구분|형태)/, industry: /^(업종|업태|industry)/i };
+export function leadPick(extras, key) {
+  const hit = (extras || []).map(e => Array.isArray(e) ? e : [e.q, e.a]).find(([q]) => PICK[key].test(String(q || '').trim()));
+  return hit ? String(hit[1] || '').replace(/_/g, ' ').trim() : '';
+}
 // 화면·채팅에 내보낼 모양
 export function presentLead(l, nowMs = Date.now()) {
   const st = leadState(l, nowMs);
@@ -201,13 +207,14 @@ export function presentLead(l, nowMs = Date.now()) {
     label: leadLabel(l.no), no: l.no, product: l.product, productLabel: PRODUCT_LABEL[l.product] || '기타',
     name: l.name || '', phone: l.phone || '', company: l.company || '', email: l.email || '', status: l.status, statusLabel: LEAD_STATUS[l.status] || '',
     tries: l.tries || 0, nextCallDate: l.nextCallDate || '', nextCallTime: l.nextCallTime || '', receivedAt: l.receivedAt || 0,
+    city: leadPick(l.extras, 'city'), bizType: leadPick(l.extras, 'bizType'), industry: leadPick(l.extras, 'industry'),
     extras: extrasPairs(l), memo: l.memo || '', assignee: l.assignee || '', formName: l.formName || '', col: st.col, alert: st.alert, reason: st.reason,
   };
 }
 export function leadLine(p) {
-  const who = [p.name || '(이름 없음)', p.company].filter(Boolean).join(' · ');
-  const ex = (p.extras || []).slice(0, 2).map(([q, a]) => q + ': ' + a).join(' / ');
-  return p.label + ' [' + p.productLabel + ' · ' + p.reason + (p.alert ? ' 🔴' : '') + '] ' + who + (p.phone ? ' ☎ ' + p.phone : '') + (ex ? ' — ' + ex : '');
+  const info = [p.city, p.bizType, p.industry].filter(Boolean).join(' · ');
+  return p.label + ' [' + p.productLabel + ' · ' + p.reason + (p.alert ? ' 🔴' : '') + '] ' + (p.name || '(이름 없음)') + (p.phone ? ' ☎ ' + p.phone : '')
+    + (info ? ' — ' + info : '') + (p.formName ? ' 〔' + p.formName + '〕' : '') + (p.company ? ' (회사 ' + p.company + ')' : '');
 }
 
 const activityPath = (nowMs) => 'activity/' + nowMs + '-' + Math.random().toString(36).slice(2, 10);
@@ -333,7 +340,8 @@ export async function syncMeta(env, db, { nowMs = Date.now(), fetchFn = fetch, a
   const ver = env.META_API_VERSION || 'v26.0';
   const base = 'https://graph.facebook.com/' + ver + '/';
   const prev = (await db.get(SYNC_PATH))?.data || {};
-  const sinceMs = full || !prev.lastTime ? nowMs - BACKFILL_DAYS * 86400000 : prev.lastTime - 10 * 60000;
+  // startFrom = 「이 날 이후 신청만」(lead_reset으로 정함) — 처음·전체 다시 받기도 그 앞으로는 가지 않는다
+  const sinceMs = full || !prev.lastTime ? Math.max(nowMs - BACKFILL_DAYS * 86400000, prev.startFrom || 0) : Math.max(prev.lastTime - 10 * 60000, prev.startFrom || 0);
   const graph = async (url) => {
     const r = await fetchFn(url, { headers: { authorization: 'Bearer ' + token } });
     const j = await r.json().catch(() => ({}));
@@ -370,6 +378,33 @@ export async function syncMeta(env, db, { nowMs = Date.now(), fetchFn = fetch, a
   const lastTime = Math.max(prev.lastTime || 0, ...items.map(x => x.receivedAt || 0));
   const recentIds = items.filter(x => x.metaId && (x.receivedAt || 0) >= lastTime - 15 * 60000).map(x => x.metaId).slice(0, 200);
   await db.transaction(async tx => tx.set(SYNC_PATH, { lastRunAt: nowMs, lastOkAt: nowMs, lastTime: lastTime || prev.lastTime || 0, lastError: '', lastErrorAt: prev.lastErrorAt || null,
-    forms, fetched: items.length, created: r.created.length, totalCreated: (prev.totalCreated || 0) + r.created.length, recentIds }));
+    forms, fetched: items.length, created: r.created.length, totalCreated: (prev.totalCreated || 0) + r.created.length, recentIds, startFrom: prev.startFrom || 0 }));
   return { ok: true, fetched: items.length, created: r.created, skipped: r.skipped + (items.length - fresh.length), forms: forms.map(f => f.name + ' → ' + PRODUCT_LABEL[f.product]) };
+}
+
+// ── 광고 DB 비우고 기준일부터 다시 ── (사장님 지시 10/13: 시험으로 들어온 90일치를 지우고 정한 날 이후 신청만 받기)
+//   leads 전부 지움(번호도 D-0001부터) + lead_sync.startFrom = 기준일 0시(한국) → 다음 가져오기부터 그 날 이후 신청만
+//   Meta에는 90일치가 남아 있어 기준일을 앞당기면 다시 받을 수 있다. 한 번에 400건씩 지운다(트랜잭션 쓰기 500 이하)
+export async function resetLeads(ctx, sinceInput) {
+  const { db, actor, nowMs = Date.now() } = ctx;
+  const day = parseDue(sinceInput, nowMs);
+  if (!day) throw new RuleError('기준일이 필요합니다 (예: 2026-10-13, 오늘, 10/6)');
+  const startFrom = Date.parse(day + 'T00:00:00+09:00');
+  let removed = 0;
+  for (let round = 0; round < 10; round++) {
+    const n = await db.transaction(async (tx) => {
+      const rows = (await tx.query('leads', [], { limit: 400 }));
+      rows.forEach(r => tx.delete(r.path));
+      return rows.length;
+    });
+    removed += n;
+    if (n < 400) break;
+  }
+  await db.transaction(async (tx) => {
+    const prev = (await tx.get(SYNC_PATH))?.data || {};
+    tx.set(SEQ_PATH, { last: 0, updatedAt: nowMs });
+    tx.set(SYNC_PATH, Object.assign({}, prev, { startFrom, lastTime: startFrom, recentIds: [], lastError: '', resetAt: nowMs, resetBy: actor.name }));
+    tx.create(activityPath(nowMs), activity('광고 DB', 0, 'reset', '📣 광고 DB 비움 ' + removed + '건 — ' + day + ' 이후 신청부터 다시 받기 — ' + actor.name, actor, nowMs));
+  });
+  return { removed, since: day };
 }

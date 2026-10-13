@@ -7,7 +7,7 @@ import {
 } from './todos.js';
 import { RuleError, AUTHORS, STATUSES, STATUS_LABEL, KINDS, kstToday, resolveCompany, COL_LABEL, CATEGORIES, CAT_LABEL } from './core.js';
 import { AuthError } from './auth.js';
-import { listLeads, actLead, leadStats, syncMeta, leadLine, LEAD_ACTIONS, PRODUCTS, MAX_TRIES } from './leads.js';
+import { listLeads, actLead, leadStats, syncMeta, resetLeads, leadLine, LEAD_ACTIONS, PRODUCTS, MAX_TRIES } from './leads.js';
 
 const PROTOCOLS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const SERVER_INFO = { name: 'sg-todo', title: 'SG솔루션 할 일', version: '1.0.0' };
@@ -26,7 +26,7 @@ const INSTRUCTIONS = 'SG솔루션 할 일(T-번호) 도구. 할 일을 넣거나
 
 // ── 도구 정의 ──
 const AUTHOR = { type: 'string', enum: AUTHORS, description: '누가 하는지 — 정석진·김학미·공동 (모르면 사용자에게 먼저 물을 것)' };
-const NOS = { description: '할 일 번호 (T-0123 또는 123). 여러 개면 배열', anyOf: [{ type: 'string' }, { type: 'integer' }, { type: 'array', items: { type: ['string', 'integer'] }, maxItems: 20 }] };
+const NOS = { description: '할 일 번호 (T-0123 또는 123). 여러 개면 배열', anyOf: [{ type: 'string' }, { type: 'integer' }, { type: 'array', items: { type: ['string', 'integer'] }, maxItems: 12 }] };
 const NO = { description: '할 일 번호 (T-0123 또는 123)', anyOf: [{ type: 'string' }, { type: 'integer' }] };
 const DUE = { type: 'string', description: '(선택) 마감일 — 꼬리표로만 보임(칸은 시작일로 정함): 2026-10-20 · 10/20 · 10월 20일 · 오늘 · 내일 · 모레 · +7(7일 뒤). 빈 문자열이면 마감 없앰' };
 const START = { type: 'string', description: '시작일 — 이 날이 오면 「진행 업무」로 옮겨 감. 기본 오늘. 「내일부터」=내일, 「다음 주 월요일부터」=그 날짜(YYYY-MM-DD로 계산해서). 형식: 2026-10-20 · 10/20 · 10월 20일 · 오늘 · 내일 · 모레 · +7' };
@@ -151,6 +151,16 @@ export const TOOLS = [
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
   {
+    name: 'lead_reset', title: '📣 광고 DB 비우고 기준일부터 다시',
+    description: '광고 DB를 전부 지우고(번호도 D-0001부터), 기준일 이후 신청만 다시 받는다. 사용자가 「광고 DB 비우고 ○일부터 다시」처럼 분명히 말했을 때만. confirm에 「초기화」를 넣어야 실행된다. 지운 것도 Meta에 90일 남아 있어 기준일을 앞당겨 다시 받을 수 있다.',
+    inputSchema: { type: 'object', required: ['since', 'confirm', 'author'], properties: {
+      author: AUTHOR,
+      since: { type: 'string', description: '기준일 — 이 날 0시(한국) 이후 신청만 받는다: 2026-10-13 · 오늘 · 10/6' },
+      confirm: { type: 'string', description: '실행 확인 — 「초기화」' },
+    } },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  },
+  {
     name: 'company_find', title: '기업 찾기',
     description: 'SGCRM 고객사에서 기업을 찾는다(이름 일부 또는 사업자번호) → 이름·사업자번호. 할 일에 기업을 붙이기 전 확인용.',
     inputSchema: { type: 'object', required: ['query'], properties: { query: { type: 'string' } } },
@@ -179,7 +189,11 @@ function changeText(changes) {
     return (FIELD_LABEL[k] || k) + ' → ' + (to === null || to === '' ? '(비움)' : typeof to === 'object' ? JSON.stringify(to) : to);
   }).join(', ');
 }
-const nosOf = (v) => (Array.isArray(v) ? v : [v]).filter(x => x !== undefined && x !== null && String(x).trim() !== '').slice(0, 20);
+// 한 번에 12개까지 — 하나에 외부 호출 3~4번이라 Cloudflare 무료 요금제 한도(요청당 50번)를 넘지 않게 (10/13 20개 삭제 때 걸림)
+const MAX_NOS = 12;
+const nosAll = (v) => (Array.isArray(v) ? v : [v]).filter(x => x !== undefined && x !== null && String(x).trim() !== '');
+const nosOf = (v) => nosAll(v).slice(0, MAX_NOS);
+const nosRest = (v) => { const r = nosAll(v).slice(MAX_NOS); return r.length ? '\n⚠ 한 번에 ' + MAX_NOS + '개까지라 남은 ' + r.length + '개(' + r.join(', ') + ')는 다시 불러 주세요' : ''; };
 
 // 「언제부터」 말 → ms (한국 시간)
 export function parseSince(s, nowMs) {
@@ -229,7 +243,7 @@ export async function callTool(name, args, { db, email, nowMs, env = {}, fetchFn
         } catch (e) { out.push(String(no) + ' 실패: ' + e.message); }
       }
       if (!out.length) throw new RuleError('완료할 번호(no)를 넣어 주세요');
-      return out.join('\n');
+      return out.join('\n') + nosRest(rest.no);
     }
     case 'todo_update': {
       const { no, ...patch } = rest;
@@ -279,7 +293,7 @@ export async function callTool(name, args, { db, email, nowMs, env = {}, fetchFn
         } catch (e) { out.push(String(no) + ' 실패: ' + e.message); }
       }
       if (!out.length) throw new RuleError('지울 번호(no)를 넣어 주세요');
-      return out.join('\n');
+      return out.join('\n') + nosRest(rest.no);
     }
     case 'todo_restore': {
       const r = await restoreTodo(ctx, rest.no);
@@ -299,6 +313,11 @@ export async function callTool(name, args, { db, email, nowMs, env = {}, fetchFn
     case 'lead_update': {
       const r = await actLead(ctx, rest.no, rest.action, rest);
       return r.label + ' ' + (r.lead.name || '') + ' — ' + r.what + ' → 지금: ' + r.lead.reason + (r.todo ? '\n할 일 ' + r.todo + ' 만들어짐(진행 업무)' : '');
+    }
+    case 'lead_reset': {
+      if (String(rest.confirm || '').trim() !== '초기화') throw new RuleError('지우기 전 확인: confirm에 「초기화」를 넣어 주세요 (사용자에게 먼저 확인)');
+      const r = await resetLeads(ctx, rest.since);
+      return '📣 광고 DB ' + r.removed + '건 지움 · 번호는 D-0001부터 · ' + r.since + ' 이후 신청만 받습니다. 바로 받으려면 lead_sync';
     }
     case 'lead_sync': {
       const r = await syncMeta(env, db, { nowMs, fetchFn, actor: { name: AUTHORS.includes(args.author) ? args.author : '자동', via: 'mcp', email } });
