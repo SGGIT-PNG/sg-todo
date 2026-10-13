@@ -2,6 +2,8 @@
 // SGCRM index.html의 createCertTasks · createIsoTasks · createAnnualTasks 규칙을 그대로 옮겼다(2026-10-08).
 // 예전엔 CRM을 여는 기기마다 돌아 중복 위험이 있었다 → 이제 쓰기 창구 한 곳에서, 번호·기록과 함께.
 // 휴지통 30일 지난 할 일 완전 삭제도 여기서 한다.
+// 2026-10-13: 인증 연동(cert_status, SGCRM CERT_STATUS_SPEC.md v1 §5)도 읽는다 — iso-one·메인이노가 쓴 「기업 × 인증」 최신 상태.
+//   cert_status가 있는 기업·인증은 옛 수기 기록(certifications)·iso_audits로는 만들지 않는다(겹침 방지).
 
 import { kstToday, TRASH_DAYS, noLabel } from './core.js';
 import { createMany } from './todos.js';
@@ -30,18 +32,49 @@ function categoryOf(masterId, categories, certMaster) {
 // 만들 할 일 목록 계산 (쓰지 않음) — data: {todos, companies, certifications, certMaster, annualReports, isoAudits, categories}
 export function planAuto(data, nowMs = Date.now()) {
   const { todos, companies, certifications, certMaster, annualReports, isoAudits } = data;
+  const certStatus = data.certStatus || [];
   const categories = (data.categories || []).slice().sort((a, b) => (a.order || 99) - (b.order || 99));
   const inactive = new Set(companies.filter(c => c.active === 'N').map(c => c.id));
   const nameOf = (bizno, fallback) => (companies.find(c => c.id === bizno) || {}).name || fallback || '';
   const coOf = (bizno) => companies.some(c => c.id === bizno) ? bizno : '';   // 기업 목록에 없으면 연결 없이 (글에 이름은 남음)
   const has = (pred) => todos.some(pred);
   const out = [];
+  // 연동된 기업·인증 (bizno__cert) — 이 조합은 수기 기록으로 만들지 않음
+  const linked = new Set(certStatus.filter(s => s.bizno && s.cert).map(s => s.bizno + '__' + s.cert));
+  const linkedIsoDue = new Set(certStatus.filter(s => s.bizno && /^iso_/.test(s.cert || '') && s.nextDue).map(s => s.bizno + '|' + s.nextDue));
+
+  // ⓪ 인증 연동(cert_status) — nextDue가 있으면 그것 우선(「[기업] nextAction」, 마감 nextDue),
+  //    없으면 certified + expiresAt D-90 → 「[기업] ○○ 갱신 준비」(마감 만료일). 둘 다 D-90 안일 때만.
+  //    ISO 통합심사처럼 같은 기업·같은 마감·같은 할 일이 규격마다 와도 할 일은 하나(가장 앞 문서 ID로 묶음)
+  const csSeen = new Set();
+  certStatus.slice().sort((a, b) => String(a.id).localeCompare(String(b.id))).forEach(s => {
+    if (!s || !s.bizno || !s.cert || inactive.has(s.bizno)) return;
+    if (['expired', 'failed', 'dropped'].includes(s.status)) return;
+    const m = masterOf(certMaster, s.cert);
+    const nm = nameOf(s.bizno, s.companyName);
+    const cat = categoryOf(s.cert, categories, certMaster) || 'etc';
+    let ref, due, text;
+    if (s.nextDue) {
+      const group = s.bizno + '|' + s.nextDue + '|' + (s.nextAction || '');
+      if (csSeen.has(group)) return; csSeen.add(group);
+      ref = 'cs:' + s.id + ':' + s.nextDue; due = s.nextDue;
+      text = '[' + nm + '] ' + (s.nextAction || (m.certName || s.cert) + ' 다음 일정');
+    } else if (s.status === 'certified' && s.expiresAt) {
+      ref = 'cs:' + s.id; due = s.expiresAt;
+      text = '[' + nm + '] ' + (m.certName || s.cert) + ' 갱신 준비';
+    } else return;
+    const d = dday(due, nowMs);
+    if (d === null || d > CERT_TASK_DAYS) return;
+    if (has(t => t.dedupeKey === 'cert:' + ref)) return;
+    out.push({ source: 'cert', sourceRef: ref, dday: d, fields: { text, due, tag: '인증', company: coOf(s.bizno), category: cat } });
+  });
 
   // ① 인증 갱신 D-90 (고정주기 인증. ISO 복합주기는 iso-one 경로, 연간신고 대상은 ③)
   certifications.forEach(c => {
     if (!c || !c.expDate || !c.bizno) return;
     if (c.status === '제외' || c.status === '완료' || inactive.has(c.bizno)) return;
     if (c.cycleType === 'complex') return;
+    if (linked.has(c.bizno + '__' + c.certMasterId)) return;   // 연동(cert_status)이 우선
     const m = masterOf(certMaster, c.certMasterId);
     if (m.reportType === 'annual') return;
     const d = dday(c.expDate, nowMs);
@@ -58,6 +91,7 @@ export function planAuto(data, nowMs = Date.now()) {
     if (!a.nextDeadline || !a.bizno || !a.auditId) return;
     const d = dday(a.nextDeadline, nowMs);
     if (d === null || d > ISO_TASK_DAYS) return;
+    if (linkedIsoDue.has(a.bizno + '|' + a.nextDeadline)) return;   // iso-one이 cert_status로도 같은 차기심사를 보냄 → 하나만
     if (has(t => t.isoAuditId === a.auditId || t.dedupeKey === 'iso:' + a.auditId)) return;
     const nm = nameOf(a.bizno, a.companyName);
     out.push({ source: 'iso', sourceRef: a.auditId, dday: d, fields: {
@@ -87,14 +121,14 @@ export function planAuto(data, nowMs = Date.now()) {
 }
 
 async function loadAll(db) {
-  const names = ['todos', 'companies', 'certifications', 'cert_master', 'annual_reports', 'iso_audits', 'categories'];
-  const [todos, companies, certifications, certMaster, annualReports, isoAudits, categories] =
+  const names = ['todos', 'companies', 'certifications', 'cert_master', 'annual_reports', 'iso_audits', 'categories', 'cert_status'];
+  const [todos, companies, certifications, certMaster, annualReports, isoAudits, categories, certStatus] =
     await Promise.all(names.map(n => db.list(n)));
   const plain = (rows) => rows.map(d => Object.assign({ id: d.id }, d.data));
   return {
     todos: plain(todos), companies: plain(companies).map(c => ({ id: c.id, name: c.name || '', active: c.active || '' })),
     certifications: plain(certifications), certMaster: plain(certMaster), annualReports: plain(annualReports),
-    isoAudits: plain(isoAudits), categories: plain(categories),
+    isoAudits: plain(isoAudits), categories: plain(categories), certStatus: plain(certStatus),
   };
 }
 
