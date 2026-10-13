@@ -17,7 +17,7 @@ ALLOWED_EMAILS = "sgceo@sgsolutionss.com"
 # 브라우저에서 부를 수 있는 화면 주소 (쉼표로 구분)
 ALLOWED_ORIGINS = "https://sggit-png.github.io,http://localhost:8765"
 # 📣 광고 DB — 광고가 나가는 페이스북 페이지 번호(여럿이면 쉼표). 비밀값 아님. 토큰은 Secret META_TOKEN
-META_PAGE_ID = ""
+META_PAGE_ID = "108091025620236"   # SG솔루션 페이지 (2026-10-13 확인)
 
 # 매일 06:00 한국시간(= 전날 21:00 UTC) — 인증 갱신·ISO·연간신고 할 일 자동 생성 + 휴지통 30일 정리
 # 5분마다 — 📣 광고 DB를 Meta에서 가져오기 (index.js scheduled가 cron으로 나눔)
