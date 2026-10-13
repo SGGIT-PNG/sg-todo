@@ -8,7 +8,7 @@ SG솔루션 **할 일 프로그램**. 데이터는 SGCRM Firebase(`sg-crm-f9adc`
 - **push는 사장님이 「올려줘」라고 할 때만.** 커밋도 지시 없으면 하지 않고 결과만 보고
 - `main`에 올라가면 Cloudflare가 쓰기 창구를 **자동 배포**한다 (연결 후)
 - 수정 후 `cd worker && npm test && npm run check` 전부 통과해야 다음 단계. `index.html`은 모듈 스크립트 `node --check` + 인라인 onclick 함수가 `Object.assign(window,…)`에 있는지 확인
-- **비밀값(서비스 계정 키 JSON, INGEST_KEY)은 절대 저장소·채팅에 넣지 않는다.** Cloudflare 대시보드 Secret에만
+- **비밀값(서비스 계정 키 JSON, INGEST_KEY, META_TOKEN)은 절대 저장소·채팅에 넣지 않는다.** Cloudflare 대시보드 Secret에만
 - Firestore 실데이터를 시험 삼아 바꾸지 않는다. 시험은 `test/fakeDb.js`(메모리 DB)로
 
 ## 구성
@@ -21,7 +21,8 @@ SG솔루션 **할 일 프로그램**. 데이터는 SGCRM Firebase(`sg-crm-f9adc`
 | `worker/src/auth.js` | Firebase 로그인 토큰 확인(허용 메일) · 스크립트 키 · 작성자(X-SG-User) |
 | `index.html` | **할 일 웹 화면** (GitHub Pages → https://sggit-png.github.io/sg-todo/). 읽기 = Firestore 실시간 구독, 쓰기 = 쓰기 창구 API. `worker/src/core.js`를 그대로 import (규칙 한 곳) |
 | `worker/src/auto.js` | 자동 생성(인증 갱신 D-90·ISO 차기심사 D-90·연구소 연간신고 3/1~기한 — SGCRM 규칙 그대로) + 휴지통 30일 정리. **매일 06:00 KST cron**(wrangler.toml) · 관리 탭 「지금 실행」 |
-| `worker/src/mcp.js` · `oauth.js` | **Claude 커넥터** `POST /mcp`(도구 9개: todo_add·complete·update·list·get·changes·delete·restore, company_find) + 로그인 `/oauth/*`(구글 로그인 → 서명 출입증 1시간·갱신증 90일, KV 없음). 쓰기 도구는 `author` 필수, 기록 `via:'mcp'`. claude.ai 커스텀 커넥터 주소 = `https://sg-todo.sgsolution.workers.dev/mcp` |
+| `worker/src/mcp.js` · `oauth.js` | **Claude 커넥터** `POST /mcp`(도구 12개: todo_add·complete·update·list·get·changes·delete·restore, company_find, lead_list·lead_update·lead_sync) + 로그인 `/oauth/*`(구글 로그인 → 서명 출입증 1시간·갱신증 90일, KV 없음). 쓰기 도구는 `author` 필수, 기록 `via:'mcp'`. claude.ai 커스텀 커넥터 주소 = `https://sg-todo.sgsolution.workers.dev/mcp` |
+| `worker/src/leads.js` | **📣 광고 DB**(Meta 리드 광고 ISO·벤처·기업인증·ESG) — Firestore `leads/D-0001`, 번호 `app_state/lead_seq`. **5분마다 cron**이 Meta Graph API에서 가져옴(`syncMeta` — Secret `META_TOKEN` + `wrangler.toml` `META_PAGE_ID`, 없으면 아무것도 안 함, 상태 `app_state/lead_sync`). 예비: 웹 「엑셀 올리기」(`/api/leads/import`). 중복 = Meta 리드 ID 또는 같은 광고+같은 전화번호. 상태 new→noans(부재, 다음 영업일 재통화, **3번째 = unreach**)→talk→won(할 일 생성)/lost. 웹 「📣 광고 DB」 탭, MCP `lead_list`·`lead_update`·`lead_sync`, CRM TV 통화 카드. 연결 안내 `META_SETUP.md` |
 | `/api/ingest` · `/api/admin/rebizno` | 드라이브 스크립트 v7(음성·채팅, X-Api-Key=INGEST_KEY) · SGCRM 사업자번호 변경 |
 | `worker/src/todos.js` 번호 붙이기 | `GET/POST /api/admin/migrate` — 기존 할 일 번호 부여(미리보기 → 적용, 여러 번 안전). 웹 「관리」 탭 |
 

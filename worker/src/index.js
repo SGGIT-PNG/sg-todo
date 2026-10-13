@@ -17,6 +17,11 @@
 //   GET    /api/admin/auto                자동 생성 미리보기(인증 갱신·ISO·연간신고) / POST 지금 실행 (매일 06:00 예약 작업과 같음)
 //   POST   /api/admin/rebizno             {from, to} 사업자번호 변경 — 그 기업 할 일을 옮김 (SGCRM이 부름)
 //   POST   /api/ingest                    (드라이브 스크립트·비서, X-Api-Key) {text, source, sourceRef, company?, due?, memo?}
+//   GET    /api/leads?view=today|new|call|later|open|closed|all&product=&q=   📣 광고 DB 목록 (leads.js)
+//   GET    /api/leads/stats?days=30   광고별 성과
+//   POST   /api/leads/import          {rows:[{열 이름: 값}], product?, fileName?}  Meta 엑셀·CSV (예비 — 평소엔 자동)
+//   POST   /api/leads/D-0001/act      {action: noans|talk|schedule|won|lost|reopen|memo, date?, time?, memo?}
+//   POST   /api/leads/sync            {full?}  Meta에서 지금 가져오기 (평소엔 5분마다 예약 작업)
 //   POST   /mcp                           Claude 채팅 도구(MCP) — 출입증은 /oauth/* 로그인으로 (mcp.js · oauth.js)
 //   GET    /.well-known/oauth-protected-resource · /.well-known/oauth-authorization-server   커넥터 안내 문서
 //
@@ -32,7 +37,9 @@ import {
 import { previewAuto, runAuto } from './auto.js';
 import * as oauth from './oauth.js';
 import { handleMcpPost } from './mcp.js';
+import { listLeads, leadStats, importLeads, actLead, syncMeta, fromSheetRow, classifyProduct } from './leads.js';
 
+const DAILY_CRON = '0 21 * * *';
 const INGEST_SOURCES = ['voice', 'chat', 'secretary', 'card', 'lead'];   // chat = 드라이브 스크립트가 옮기는 채팅 「할일」 일정(MCP 전까지)
 
 function corsHeaders(request, env) {
@@ -84,7 +91,7 @@ export async function handle(request, env, deps = {}) {
       if (request.method !== 'POST') return new Response(null, { status: 405, headers: { allow: 'POST' } });
       const who = await oauth.checkAccess(request, env, nowMs);
       if (!who) return oauth.unauthorized(request);
-      return handleMcpPost(request, () => ({ db: deps.db || restDb({ projectId: env.FIREBASE_PROJECT, saKey: env.GCP_SA_KEY }), email: who.email, nowMs }));
+      return handleMcpPost(request, () => ({ db: deps.db || restDb({ projectId: env.FIREBASE_PROJECT, saKey: env.GCP_SA_KEY }), email: who.email, nowMs, env, fetchFn: deps.fetchFn }));
     }
     if (!path.startsWith('/api/')) return json({ ok: false, error: '없는 주소입니다' }, 404, cors);
 
@@ -100,6 +107,11 @@ export async function handle(request, env, deps = {}) {
       return json(Object.assign({ ok: true }, await listTodos(db, { view: q.get('view') || 'open', company: q.get('company') || '', category: q.get('category') || '', query: q.get('q') || '', limit: Number(q.get('limit')) || 50 }, nowMs)), 200, cors);
     }
     if (request.method === 'GET' && m && !m[2]) return json({ ok: true, todo: await getTodo(db, decodeURIComponent(m[1]), nowMs) }, 200, cors);
+    if (request.method === 'GET' && path === '/api/leads') {
+      const q = url.searchParams;
+      return json(Object.assign({ ok: true }, await listLeads(db, { view: q.get('view') || 'today', product: q.get('product') || '', query: q.get('q') || '', limit: Number(q.get('limit')) || 100 }, nowMs)), 200, cors);
+    }
+    if (request.method === 'GET' && path === '/api/leads/stats') return json({ ok: true, stats: await leadStats(db, { days: Number(url.searchParams.get('days')) || 30 }, nowMs) }, 200, cors);
     if (request.method === 'GET' && path === '/api/admin/migrate') {
       if (actor.via !== 'web') throw new AuthError('웹 화면 로그인으로만 할 수 있습니다', 403);
       return json(Object.assign({ ok: true }, await migratePreview(db)), 200, cors);
@@ -136,6 +148,15 @@ export async function handle(request, env, deps = {}) {
     }
     if (request.method === 'POST' && path === '/api/admin/auto') return json(Object.assign({ ok: true }, await runAuto(db, nowMs)), 200, cors);
     if (request.method === 'POST' && path === '/api/admin/rebizno') return json(Object.assign({ ok: true }, await rebizno(ctx, body.from, body.to)), 200, cors);
+    const lm = path.match(/^\/api\/leads\/([^/]+)\/act$/);
+    if (request.method === 'POST' && lm) return json(Object.assign({ ok: true }, await actLead(ctx, decodeURIComponent(lm[1]), body.action, body)), 200, cors);
+    if (request.method === 'POST' && path === '/api/leads/import') {
+      if (!Array.isArray(body.rows) || !body.rows.length) throw new RuleError('rows(엑셀 줄)가 비어 있습니다');
+      if (body.rows.length > 1000) throw new RuleError('한 번에 1000줄까지 올릴 수 있습니다');
+      const fallback = body.product || classifyProduct(body.fileName || '');
+      return json(Object.assign({ ok: true }, await importLeads(ctx, body.rows.map(r => fromSheetRow(r, fallback)), { source: 'excel' })), 200, cors);
+    }
+    if (request.method === 'POST' && path === '/api/leads/sync') return json(await syncMeta(env, db, { nowMs, fetchFn: deps.fetchFn, actor, full: !!body.full }), 200, cors);
     if (request.method === 'POST' && path === '/api/todos') {
       const { source, sourceRef, ...fields } = body;
       const src = ['manual', 'lead', 'card'].includes(source) ? source : 'manual';
@@ -157,7 +178,12 @@ export async function handle(request, env, deps = {}) {
 
 export default {
   fetch: (request, env) => handle(request, env),
-  // 매일 06:00(한국) — 자동 생성 + 휴지통 정리 (wrangler.toml [triggers])
-  scheduled: (event, env, ctx) => ctx.waitUntil(
-    runAuto(restDb({ projectId: env.FIREBASE_PROJECT, saKey: env.GCP_SA_KEY })).catch(e => console.error('[sg-todo 자동] 실패', e && e.stack || e))),
+  // 예약 작업 (wrangler.toml [triggers])
+  //   매일 06:00(한국) — 자동 생성 + 휴지통 정리 / 5분마다 — 📣 광고 DB Meta에서 가져오기(연결 전이면 아무것도 안 함)
+  scheduled: (event, env, ctx) => {
+    const db = restDb({ projectId: env.FIREBASE_PROJECT, saKey: env.GCP_SA_KEY });
+    if (event.cron === DAILY_CRON) ctx.waitUntil(runAuto(db).catch(e => console.error('[sg-todo 자동] 실패', e && e.stack || e)));
+    else if (env.META_TOKEN) ctx.waitUntil(syncMeta(env, db).then(r => { if (!r.ok) console.warn('[광고 DB] 가져오기 실패', r.error); })
+      .catch(e => console.error('[광고 DB] 실패', e && e.stack || e)));
+  },
 };

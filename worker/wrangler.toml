@@ -3,6 +3,7 @@
 # 비밀값은 여기에 쓰지 않는다. Cloudflare 대시보드 → Workers → sg-todo → 설정 → 변수 및 비밀(Secret)에 넣는다:
 #   GCP_SA_KEY  서비스 계정 sg-todo-api 키 JSON 전체
 #   INGEST_KEY  드라이브 스크립트·비서용 키
+#   META_TOKEN  📣 광고 DB — Meta 페이지 액세스 토큰(리드 읽기). 없으면 5분 작업이 아무것도 안 함
 #   MCP_SECRET  (선택) Claude 커넥터 출입증 서명 키 — 없으면 GCP_SA_KEY에서 만들어 씀. 값을 바꾸면 연결된 커넥터가 전부 끊김(비상 차단)
 name = "sg-todo"
 main = "src/index.js"
@@ -15,10 +16,13 @@ FIREBASE_PROJECT = "sg-crm-f9adc"
 ALLOWED_EMAILS = "sgceo@sgsolutionss.com"
 # 브라우저에서 부를 수 있는 화면 주소 (쉼표로 구분)
 ALLOWED_ORIGINS = "https://sggit-png.github.io,http://localhost:8765"
+# 📣 광고 DB — 광고가 나가는 페이스북 페이지 번호(여럿이면 쉼표). 비밀값 아님. 토큰은 Secret META_TOKEN
+META_PAGE_ID = ""
 
 # 매일 06:00 한국시간(= 전날 21:00 UTC) — 인증 갱신·ISO·연간신고 할 일 자동 생성 + 휴지통 30일 정리
+# 5분마다 — 📣 광고 DB를 Meta에서 가져오기 (index.js scheduled가 cron으로 나눔)
 [triggers]
-crons = ["0 21 * * *"]
+crons = ["0 21 * * *", "*/5 * * * *"]
 
 [observability]
 enabled = true

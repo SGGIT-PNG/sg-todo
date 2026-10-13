@@ -7,6 +7,7 @@ import {
 } from './todos.js';
 import { RuleError, AUTHORS, STATUSES, STATUS_LABEL, KINDS, kstToday, resolveCompany, COL_LABEL, CATEGORIES, CAT_LABEL } from './core.js';
 import { AuthError } from './auth.js';
+import { listLeads, actLead, leadStats, syncMeta, leadLine, LEAD_ACTIONS, PRODUCTS, MAX_TRIES } from './leads.js';
 
 const PROTOCOLS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const SERVER_INFO = { name: 'sg-todo', title: 'SG솔루션 할 일', version: '1.0.0' };
@@ -18,7 +19,10 @@ const INSTRUCTIONS = 'SG솔루션 할 일(T-번호) 도구. 할 일을 넣거나
   + '「어제 끝냈어」처럼 끝낸 날을 말하면 todo_complete의 date에 넣는다. '
   + '📞 통화 = 「언제 몇 시에 누구에게 전화」(업무가 아님) → todo_add kind=call, start=통화 날짜(기본 오늘), time=시각(「오후 2시」「14:00」, 모르면 비움). 통화는 업무 칸이 아니라 통화 칸에 나온다. 통화했다고 하면 todo_complete. 목록은 todo_list view=call. '
   + '제안 업무 = 업체가 맡기지 않았지만 우리가 먼저 제안하려는 일(「하이퍼다인 ISO 인증 제안 예정」) → todo_add status=idea. 제안 업무의 날짜(start 시작일·due 종료일)는 사용자가 말했을 때만 넣고, 먼저 권하지 않는다. 날짜가 있어도 제안 칸에 머문다(시작일이 와도 옮기지 않고, 종료일이 지나도 빨간 표시 없음). 목록은 todo_list view=idea. '
-  + '제안해서 실제로 맡게 되면 todo_update status=ing(지금부터) 또는 status=wait+start(그 날부터)로 옮긴다.';
+  + '제안해서 실제로 맡게 되면 todo_update status=ing(지금부터) 또는 status=wait+start(그 날부터)로 옮긴다. '
+  + '📣 광고 DB(D-0012) = Meta 광고(ISO심사·벤처인증·기업인증·ESG인증)로 들어온 신청자. 5분마다 자동으로 들어온다. 「오늘 전화할 DB」 → lead_list. '
+  + '전화 결과는 lead_update: 안 받음 → noans(다음 영업일 재통화 자동, 3번째 부재면 연락 안 됨), 통화됨·상담 이어감 → talk(다시 걸 날은 date·time), 통화 약속만 → schedule, 계약·진행하기로 → won(할 일이 하나 생김), 관심 없음·잘못된 번호 → lost(이유는 memo). '
+  + '광고별 성과는 lead_list view=stats.';
 
 // ── 도구 정의 ──
 const AUTHOR = { type: 'string', enum: AUTHORS, description: '누가 하는지 — 정석진·김학미·공동 (모르면 사용자에게 먼저 물을 것)' };
@@ -116,6 +120,37 @@ export const TOOLS = [
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
+    name: 'lead_list', title: '📣 광고 DB 목록',
+    description: 'Meta 광고(ISO심사·벤처인증·기업인증·ESG인증)로 들어온 DB(신청자). today(기본) = 🆕 새 DB(아직 한 번도 안 건 곳) + 오늘 걸 곳(재통화·상담 약속) · new · call · later(재통화가 앞날·상담 중) · open(안 끝난 것 전부) · closed(전환·거절·연락 안 됨) · all · stats(광고별 성과: 들어옴·통화 연결·전환). 🔴 = 들어온 지 24시간 넘게 전화 안 함 또는 약속한 날이 지남.',
+    inputSchema: { type: 'object', properties: {
+      view: { type: 'string', enum: ['today', 'new', 'call', 'later', 'open', 'closed', 'all', 'stats'], description: '기본 today' },
+      product: { type: 'string', enum: ['', ...PRODUCTS.map(p => p[0])], description: PRODUCTS.map(([k, n]) => k + ' ' + n).join(' · ') },
+      query: { type: 'string', description: '이름·회사·전화번호·답변 검색' },
+      days: { type: 'integer', description: 'stats 기간(기본 30일)' },
+      limit: { type: 'integer', minimum: 1, maximum: 200, description: '기본 50' },
+    } },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: 'lead_update', title: '📣 광고 DB 전화 결과',
+    description: '광고 DB 하나에 전화 결과를 기록한다. noans = 안 받음(다음 영업일 재통화가 저절로 잡힘 — 3번째면 「연락 안 됨」으로 닫힘) · talk = 통화됨, 상담 이어감(다시 걸 날은 date·time) · schedule = 통화 약속만 잡기(date 필수) · won = 고객 전환(진행 업무 할 일이 하나 생김) · lost = 거절·무효(이유는 memo) · reopen = 닫힌 것 다시 열기 · memo = 메모만.',
+    inputSchema: { type: 'object', required: ['no', 'action', 'author'], properties: {
+      author: AUTHOR,
+      no: { description: '광고 DB 번호 (D-0012 또는 12)', anyOf: [{ type: 'string' }, { type: 'integer' }] },
+      action: { type: 'string', enum: LEAD_ACTIONS },
+      date: { type: 'string', description: '다시 걸 날 — 내일 · 10/20 · +3 · 2026-10-20 (noans는 비우면 다음 영업일)' },
+      time: { type: 'string', description: '시각 — 14:00 · 오후 2시 (선택)' },
+      memo: { type: 'string', description: '통화 내용·거절 이유 등 (메모에 날짜와 함께 덧붙음)' },
+    } },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  },
+  {
+    name: 'lead_sync', title: '📣 광고 DB 지금 가져오기',
+    description: 'Meta에서 새 광고 DB를 지금 가져온다(평소엔 5분마다 자동). 결과: 새로 들어온 건수.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  },
+  {
     name: 'company_find', title: '기업 찾기',
     description: 'SGCRM 고객사에서 기업을 찾는다(이름 일부 또는 사업자번호) → 이름·사업자번호. 할 일에 기업을 붙이기 전 확인용.',
     inputSchema: { type: 'object', required: ['query'], properties: { query: { type: 'string' } } },
@@ -160,13 +195,13 @@ export function parseSince(s, nowMs) {
 }
 
 // ── 도구 실행 ── 돌려주는 값: 사람이 읽을 글 (오류면 RuleError 등을 던짐)
-export async function callTool(name, args, { db, email, nowMs }) {
+export async function callTool(name, args, { db, email, nowMs, env = {}, fetchFn }) {
   args = args || {};
   const tool = TOOLS.find(t => t.name === name);
   if (!tool) throw new RuleError('없는 도구입니다: ' + name);
   const writes = !tool.annotations.readOnlyHint;
   let actor = null;
-  if (writes) {
+  if (writes && name !== 'lead_sync') {
     if (!AUTHORS.includes(args.author)) throw new RuleError('누가 하는지(author: 정석진·김학미·공동)를 넣어 주세요. 모르면 사용자에게 물어보세요');
     actor = { name: args.author, via: 'mcp', email };
   }
@@ -249,6 +284,26 @@ export async function callTool(name, args, { db, email, nowMs }) {
     case 'todo_restore': {
       const r = await restoreTodo(ctx, rest.no);
       return r.changed ? r.label + ' 되살림' : r.label + ' 휴지통에 없음 (이미 살아 있음)';
+    }
+    case 'lead_list': {
+      if (rest.view === 'stats') {
+        const st = await leadStats(db, { days: Number(rest.days) || 30 }, nowMs);
+        const pct = (a, b) => b ? Math.round(a * 100 / b) + '%' : '-';
+        return '📣 광고별 성과 (최근 ' + (Number(rest.days) || 30) + '일 들어온 DB)\n' + st.map(x => x.label + ': 들어옴 ' + x.received + ' · 통화 연결 ' + x.reached + '(' + pct(x.reached, x.received) + ') · 고객 전환 ' + x.won + '(' + pct(x.won, x.received) + ') · 거절 ' + x.lost + ' · 연락 안 됨 ' + x.unreach + ' · 진행 중 ' + x.waiting).join('\n');
+      }
+      const r = await listLeads(db, { view: rest.view || 'today', product: rest.product || '', query: rest.query || '', limit: Number(rest.limit) || 50 }, nowMs);
+      const names = { today: '오늘 전화할 DB(새 DB + 재통화·약속)', new: '🆕 새 DB', call: '오늘 걸 곳', later: '재통화 앞날·상담 중', open: '진행 중 전부', closed: '끝난 DB', all: '전체' };
+      const head = '📣 ' + names[r.view] + ' ' + r.total + '건 · 새 DB ' + r.counts.new + ' · 오늘 걸 곳 ' + r.counts.call + (r.counts.alert ? ' · 🔴 ' + r.counts.alert : '') + ' · 부재 ' + MAX_TRIES + '번이면 연락 안 됨';
+      return r.leads.length ? head + '\n' + r.leads.map(leadLine).join('\n') : head + '\n(없음)';
+    }
+    case 'lead_update': {
+      const r = await actLead(ctx, rest.no, rest.action, rest);
+      return r.label + ' ' + (r.lead.name || '') + ' — ' + r.what + ' → 지금: ' + r.lead.reason + (r.todo ? '\n할 일 ' + r.todo + ' 만들어짐(진행 업무)' : '');
+    }
+    case 'lead_sync': {
+      const r = await syncMeta(env, db, { nowMs, fetchFn, actor: { name: AUTHORS.includes(args.author) ? args.author : '자동', via: 'mcp', email } });
+      if (!r.ok) return '가져오지 못했습니다: ' + r.error;
+      return 'Meta 확인 ' + r.fetched + '건 · 새로 들어옴 ' + r.created.length + '건' + (r.created.length ? ' (' + r.created.map(c => c.label + ' ' + (c.name || '')).join(', ') + ')' : '') + (r.forms.length ? '\n양식: ' + r.forms.join(' · ') : '');
     }
     case 'company_find': {
       const q = String(rest.query || '').trim();
