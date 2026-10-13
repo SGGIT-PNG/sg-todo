@@ -492,7 +492,7 @@ function weekMove(n) { weekOffset = n === 0 ? 0 : weekOffset + n; render(); }
 const agoTxt = ms => { if (!ms) return '—'; const m = Math.floor((now() - ms) / 60000); return m < 1 ? '방금' : m < 60 ? m + '분 전' : m < 1440 ? Math.floor(m / 60) + '시간 전' : Math.floor(m / 1440) + '일 전'; };
 const kstHM = ms => new Date(ms + 9 * 3600000).toISOString().slice(5, 16).replace('T', ' ').replace('-', '/');
 // 한 줄 = 신청 · 광고 · 이름(+전화) · 지역 · 사업자 유형 · 업종 · 상태 · 양식 이름 · 버튼 (사장님이 고른 항목 10/13)
-const LD_HEAD = '<div class="ld-grid ld-hd"><span>광고 · 양식 이름</span><span>이름 · 전화</span><span>지역</span><span>사업자 유형</span><span>업종</span><span>상태 · 신청</span><span style="text-align:right">전화 결과</span></div>';
+const LD_HEAD = '<div class="ld-grid ld-hd"><span>광고 · 양식 이름</span><span>이름 · 회사 · 전화</span><span>지역</span><span>사업자 유형</span><span>업종</span><span>상태 · 신청</span><span style="text-align:right">전화 결과</span></div>';
 function leadRow(p) {
   const L = esc(p.label);
   const btn = (a, t, title) => '<button class="btn sm" onclick="leadAct(\'' + L + '\',\'' + a + '\')"' + (title ? ' title="' + title + '"' : '') + '>' + t + '</button>';
@@ -501,9 +501,9 @@ function leadRow(p) {
       + btn('won', '전환', '고객 전환 — 진행 업무 할 일이 생김') + btn('lost', '거절', '관심 없음·잘못된 번호');
   const memoLast = (p.memo || '').trim().split('\n').pop();
   const why = p.col === 'new' ? p.reason.replace(/^🆕\s*/, '') : p.reason;
-  return '<div class="ld-grid ld-r' + (p.alert ? ' alert' : '') + (p.col === 'closed' ? ' done' : '') + '" title="' + esc(p.label + (memoLast ? ' · 📝 ' + memoLast : '') + (p.company ? ' · 회사 ' + p.company : '')) + '">'
+  return '<div class="ld-grid ld-r' + (p.alert ? ' alert' : '') + (p.col === 'closed' ? ' done' : '') + '" title="' + esc(p.label + (memoLast ? ' · 📝 ' + memoLast : '')) + '">'
     + '<span class="cell"><span class="pchip ' + esc(p.product) + '">' + esc(p.productLabel) + '</span><br><span class="fm">' + esc(p.formName || '—') + '</span></span>'
-    + '<span class="cell"><span class="nm">' + esc(p.name || '(이름 없음)') + '</span>'
+    + '<span class="cell"><span class="nm">' + esc(p.name || '(이름 없음)') + '</span>' + (p.company ? ' <span style="color:var(--text2);font-size:12px">· ' + esc(p.company) + '</span>' : '')
       + (p.phone ? '<br><a class="ph" href="tel:' + esc(p.phone.replace(/-/g, '')) + '">☎ ' + esc(p.phone) + '</a>' : '') + '</span>'
     + '<span class="cell">' + esc(p.city || '—') + '</span>'
     + '<span class="cell">' + esc(p.bizType || '—') + '</span>'

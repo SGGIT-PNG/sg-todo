@@ -161,7 +161,7 @@ test('Claude 도구 — lead_list · lead_update · stats · lead_sync', async (
   await importLeads({ db, actor, nowMs: NOW }, [fromMetaLead(metaLead('c1', '01090909090', 2, [{ name: 'city', values: ['경기 시흥'] }, { name: '사업자 유형', values: ['법인사업자'] }, { name: '업종', values: ['제조'] }]), { name: 'ISO' })]);
   const deps = { db, email: 'sgceo@sgsolutionss.com', nowMs: NOW };
   let out = await callTool('lead_list', {}, deps);
-  assert.match(out, /새 DB 1/); assert.match(out, /D-0001 \[ISO심사 · 🆕 2시간 전 들어옴\] 홍길동c1 ☎ 010-9090-9090 — 경기 시흥 · 법인사업자 · 제조 〔ISO〕 \(회사 길동산업\)/);
+  assert.match(out, /새 DB 1/); assert.match(out, /D-0001 \[ISO심사 · 🆕 2시간 전 들어옴\] 홍길동c1 · 길동산업 ☎ 010-9090-9090 — 경기 시흥 · 법인사업자 · 제조 〔ISO〕/);
   await assert.rejects(() => callTool('lead_update', { no: 'D-1', action: 'noans' }, deps), /author/);
   out = await callTool('lead_update', { no: 'D-1', action: 'talk', date: '내일', time: '2시', author: '정석진' }, deps);
   assert.match(out, /상담 중 · 10\/14 14:00 다시 통화/);
