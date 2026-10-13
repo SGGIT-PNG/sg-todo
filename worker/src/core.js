@@ -330,6 +330,13 @@ export function startOf(t, nowMs = Date.now()) {
   if (t.status === 'idea') return t.startDate || '';   // 제안 업무는 시작일이 없을 수 있다
   return t.startDate || (t.createdAt ? kstToday(t.createdAt) : kstToday(nowMs));
 }
+// 칸 앞머리 날짜 표시 (2026-10-13 사장님): 진행 업무 = 오늘 시작 · +1일 · +2일 … (시작일에서 며칠 지났나)
+//   예정 업무 = -1일 · -2일 … (시작일까지 며칠 남았나). days는 bucket 값 그대로(진행은 시작한 날 = 1)
+export function dayTag(col, days) {
+  if (col === 'ing') return days <= 1 ? '오늘 시작' : '+' + (days - 1) + '일';
+  if (col === 'todo') return '-' + days + '일';
+  return '';
+}
 export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
   if (t.deletedAt) return { col: 'trash', days: 0, alert: false, tags: [], reason: '' };
   const tags = [];
@@ -367,11 +374,11 @@ export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
   }
   if (start > today) {
     const left = daysBetween(today, start);
-    return { col: 'todo', days: left, alert, tags, reason: [(left === 1 ? '내일 시작' : 'D-' + left)].concat(tags.map(x => x.t)).join(' · ') };
+    return { col: 'todo', days: left, alert, tags, reason: [dayTag('todo', left)].concat(tags.map(x => x.t)).join(' · ') };
   }
   const days = daysBetween(start, today) + 1;   // 시작한 날 = 1일째
   if (days >= rules.stallDays) alert = true;     // 오래 끈 일
-  const head = days === 1 ? '오늘 시작' : days + '일째';
+  const head = dayTag('ing', days);
   return { col: 'ing', days, alert, tags, reason: [head].concat(tags.map(x => x.t)).join(' · ') };
 }
 

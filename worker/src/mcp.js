@@ -81,7 +81,7 @@ export const TOOLS = [
   },
   {
     name: 'todo_list', title: '할 일 목록',
-    description: '할 일 목록 — 웹 화면과 같은 칸. call = 📞 통화(날짜·시각 순, 놓친 통화 포함), open = 진행 업무+예정 업무, idea = 제안 업무, all = open+제안(기업별로 볼 때), ing = 진행 업무(시작일 지남, N일째), todo = 예정 업무(시작 전, D-n), done = 완료 업무(최근 순), alert = 빨간 표시(마감 지남·14일 넘게 끈 일), waiting = 기다리는 중 꼬리표, week = 7일 안 마감, trash = 휴지통.',
+    description: '할 일 목록 — 웹 화면과 같은 칸. call = 📞 통화(날짜·시각 순, 놓친 통화 포함), open = 진행 업무+예정 업무, idea = 제안 업무, all = open+제안(기업별로 볼 때), ing = 진행 업무(시작일 지남, 오늘 시작·+N일), todo = 예정 업무(시작 전, -N일), done = 완료 업무(최근 순), alert = 빨간 표시(마감 지남·14일 넘게 끈 일), waiting = 기다리는 중 꼬리표, week = 7일 안 마감, trash = 휴지통.',
     inputSchema: { type: 'object', properties: {
       view: { type: 'string', enum: ['open', 'call', 'ing', 'todo', 'idea', 'all', 'done', 'alert', 'waiting', 'week', 'trash'], description: '기본 open' },
       company: { type: 'string', description: '기업 이름(일부) 또는 사업자번호로 거르기' },
