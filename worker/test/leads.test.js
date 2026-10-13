@@ -158,10 +158,10 @@ test('Meta에서 가져오기 — 토큰 없으면 건너뜀 · 양식별로 가
 
 test('Claude 도구 — lead_list · lead_update · stats · lead_sync', async () => {
   const db = db0();
-  await importLeads({ db, actor, nowMs: NOW }, [fromMetaLead(metaLead('c1', '01090909090', 2, [{ name: '희망 인증', values: ['ISO 14001'] }]), { name: 'ISO' })]);
+  await importLeads({ db, actor, nowMs: NOW }, [fromMetaLead(metaLead('c1', '01090909090', 2, [{ name: 'city', values: ['경기 시흥'] }, { name: '사업자 유형', values: ['법인사업자'] }, { name: '업종', values: ['제조'] }]), { name: 'ISO' })]);
   const deps = { db, email: 'sgceo@sgsolutionss.com', nowMs: NOW };
   let out = await callTool('lead_list', {}, deps);
-  assert.match(out, /새 DB 1/); assert.match(out, /D-0001 \[ISO심사 · 🆕 2시간 전 들어옴\] 홍길동c1 · 길동산업 ☎ 010-9090-9090 — 희망 인증: ISO 14001/);
+  assert.match(out, /새 DB 1/); assert.match(out, /D-0001 \[ISO심사 · 🆕 2시간 전 들어옴\] 홍길동c1 ☎ 010-9090-9090 — 경기 시흥 · 법인사업자 · 제조 〔ISO〕 \(회사 길동산업\)/);
   await assert.rejects(() => callTool('lead_update', { no: 'D-1', action: 'noans' }, deps), /author/);
   out = await callTool('lead_update', { no: 'D-1', action: 'talk', date: '내일', time: '2시', author: '정석진' }, deps);
   assert.match(out, /상담 중 · 10\/14 14:00 다시 통화/);
@@ -169,4 +169,37 @@ test('Claude 도구 — lead_list · lead_update · stats · lead_sync', async (
   assert.match(out, /ISO심사: 들어옴 1 · 통화 연결 1\(100%\)/);
   out = await callTool('lead_sync', {}, deps);
   assert.match(out, /Meta 연결 전/);
+});
+
+test('비우고 기준일부터 다시 — 전부 지우고 번호 D-0001부터, 기준일 앞 신청은 안 받음', async () => {
+  const db = db0();
+  const env = { META_TOKEN: 'tok', META_PAGE_ID: 'P1' };
+  const urls = [];
+  const fetchFn = async (url) => {
+    urls.push(url);
+    const since = url.includes('filtering=') ? JSON.parse(decodeURIComponent(url.split('filtering=')[1]))[0].value * 1000 : 0;
+    if (url.includes('/leadgen_forms')) return Response.json({ data: [{ id: 'F1', name: 'ISO 심사' }] });
+    const all = [metaLead('old', '01011110000', 72), metaLead('new', '01022220000', 2)];
+    return Response.json({ data: all.filter(l => Date.parse(l.created_time.replace(/\+0000$/, 'Z')) > since) });
+  };
+  await syncMeta(env, db, { nowMs: NOW, fetchFn });
+  assert.equal([...db.store.keys()].filter(k => k.startsWith('leads/')).length, 2);
+  const deps = { db, email: 'x', nowMs: NOW };
+  await assert.rejects(() => callTool('lead_reset', { since: '오늘', author: '정석진' }, deps), /초기화/);
+  const out = await callTool('lead_reset', { since: '오늘', confirm: '초기화', author: '정석진' }, deps);
+  assert.match(out, /2건 지움 · 번호는 D-0001부터 · 2026-10-13 이후/);
+  assert.equal([...db.store.keys()].filter(k => k.startsWith('leads/')).length, 0);
+  assert.equal(db.store.get(SYNC_PATH).startFrom, Date.parse('2026-10-13T00:00:00+09:00'));
+  // 처음부터 다시 받아도(full) 기준일 앞으로는 안 감 → 오늘 들어온 것만, 번호는 D-0001
+  const r = await syncMeta(env, db, { nowMs: NOW + 60000, fetchFn, full: true });
+  assert.deepEqual(r.created.map(c => c.label), ['D-0001']);
+  assert.equal(db.store.get('leads/D-0001').metaId, 'new');
+});
+
+test('한 번에 12개까지 — 넘으면 남은 번호를 알려 줌(외부 호출 한도)', async () => {
+  const seed = {}; for (let i = 1; i <= 14; i++) seed['todos/T-' + String(i).padStart(4, '0')] = { no: i, text: 't' + i, status: 'wait', startDate: '2026-10-13', createdAt: NOW };
+  const db = fakeDb(seed);
+  const out = await callTool('todo_delete', { no: Array.from({ length: 14 }, (_, i) => i + 1), author: '정석진' }, { db, email: 'x', nowMs: NOW });
+  assert.equal((out.match(/휴지통으로 옮김/g) || []).length, 12);
+  assert.match(out, /남은 2개\(13, 14\)는 다시/);
 });
