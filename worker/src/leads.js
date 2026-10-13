@@ -324,13 +324,13 @@ export async function leadStats(db, { days = 30 } = {}, nowMs = Date.now()) {
 }
 
 // ── Meta에서 가져오기 ── 5분마다(예약 작업) · 웹 「지금 가져오기」 · 채팅 lead_sync
-//   env.META_TOKEN(비밀값, 페이지 액세스 토큰) · env.META_PAGE_ID(페이지 번호, 여럿이면 쉼표) · env.META_API_VERSION(기본 v23.0)
+//   env.META_TOKEN(비밀값, 페이지 액세스 토큰) · env.META_PAGE_ID(페이지 번호, 여럿이면 쉼표) · env.META_API_VERSION(기본 v26.0)
 //   지난번 받은 가장 늦은 신청 시각 10분 전부터 다시 물어 빠지는 것이 없게 하고, 중복은 importLeads가 거른다
 export async function syncMeta(env, db, { nowMs = Date.now(), fetchFn = fetch, actor = { name: '자동', via: 'meta' }, full = false } = {}) {
   const token = String(env.META_TOKEN || '').trim();
   const pages = String(env.META_PAGE_ID || '').split(',').map(s => s.trim()).filter(Boolean);
   if (!token || !pages.length) return { ok: false, skipped: true, error: 'Meta 연결 전입니다(META_TOKEN·META_PAGE_ID 설정 필요)' };
-  const ver = env.META_API_VERSION || 'v23.0';
+  const ver = env.META_API_VERSION || 'v26.0';
   const base = 'https://graph.facebook.com/' + ver + '/';
   const prev = (await db.get(SYNC_PATH))?.data || {};
   const sinceMs = full || !prev.lastTime ? nowMs - BACKFILL_DAYS * 86400000 : prev.lastTime - 10 * 60000;
