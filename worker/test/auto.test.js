@@ -77,3 +77,28 @@ test('사업자번호 변경 — 그 기업 할 일을 새 번호로', async () 
   assert.equal(db.store.get('todos/T-0002').companyName, '예비→정식 주식회사');
   assert.equal(db.store.get('todos/T-0003').bizno, '111-11-11111');
 });
+
+test('인증 연동(cert_status) — 갱신 D-90 · nextDue 우선 · ISO 통합심사 하나로 · 수기 기록·iso_audits와 안 겹침', async () => {
+  const db = seed({
+    'cert_master/mainbiz': { certName: '메인비즈', cycleType: 'fixed', reportType: 'renewal' },
+    'cert_master/iso_14001': { certName: 'ISO 14001', cycleType: 'complex' },
+    // 메인비즈 만료 D-50, nextDue 없음 → 갱신 준비
+    'cert_status/111-11-11111__mainbiz': { bizno: '111-11-11111', cert: 'mainbiz', companyName: '하이퍼다인', status: 'certified', issuedAt: '2023-11-27', expiresAt: ymd(NOW + 50 * DAY), source: 'mainbiz-innobiz' },
+    // 같은 기업 벤처: 연동이 있으면 수기 기록(c1, D-40)으로는 안 만듦. 연동은 만료 먼 미래 → 아무것도 없음
+    'cert_status/111-11-11111__venture': { bizno: '111-11-11111', cert: 'venture', status: 'certified', expiresAt: ymd(NOW + 400 * DAY) },
+    // ISO 통합심사 — 두 규격 같은 nextDue·nextAction → 할 일 하나, iso_audits a1(같은 마감)과도 겹치지 않게
+    'cert_status/222-22-22222__iso_9001': { bizno: '222-22-22222', cert: 'iso_9001', status: 'certified', expiresAt: ymd(NOW + 500 * DAY), nextAction: 'ISO 9001·14001 사후심사(1차)', nextDue: ymd(NOW + 60 * DAY), source: 'iso-one' },
+    'cert_status/222-22-22222__iso_14001': { bizno: '222-22-22222', cert: 'iso_14001', status: 'certified', expiresAt: ymd(NOW + 500 * DAY), nextAction: 'ISO 9001·14001 사후심사(1차)', nextDue: ymd(NOW + 60 * DAY), source: 'iso-one' },
+    // 만료·불합격은 안 만듦
+    'cert_status/222-22-22222__venture': { bizno: '222-22-22222', cert: 'venture', status: 'expired', expiresAt: ymd(NOW - 3 * DAY) },
+  });
+  const pv = await previewAuto(db, NOW);
+  assert.deepEqual(pv.items.map(i => i.text), ['[㈜하이퍼다인] 메인비즈 갱신 준비', '[청림테크] ISO 9001·14001 사후심사(1차)']);
+  const r = await runAuto(db, NOW);
+  assert.equal(r.made.length, 2);
+  const keys = [...db.store.entries()].filter(([p]) => p.startsWith('todos/')).map(([, d]) => d.dedupeKey).sort();
+  assert.deepEqual(keys, ['cert:cs:111-11-11111__mainbiz', 'cert:cs:222-22-22222__iso_14001:' + ymd(NOW + 60 * DAY)]);
+  const iso = [...db.store.values()].find(d => d.dedupeKey && d.dedupeKey.includes('iso_14001'));
+  assert.equal(iso.category, 'iso'); assert.equal(iso.source, 'cert'); assert.equal(iso.dueDate, ymd(NOW + 60 * DAY));
+  assert.deepEqual((await runAuto(db, NOW)).made, []);   // 두 번 돌려도 한 번만
+});
