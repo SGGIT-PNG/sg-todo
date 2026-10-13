@@ -75,6 +75,22 @@ main{max-width:1180px;margin:0 auto;padding:14px 16px 80px;display:grid;grid-tem
 .days.call{color:var(--call)}
 .days.call.alert{color:var(--danger)}
 .sec.c-call>h2{border-left:4px solid var(--call)}
+/* 📣 광고 DB */
+.sec.c-lead>h2{border-left:4px solid #DB2777}
+.ld-top{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.ld-top .sync{font-size:12px;color:var(--text3);margin-right:auto}
+.ld-top .sync.bad{color:var(--danger)}
+.pchip{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:1px 8px;color:#fff;white-space:nowrap}
+.pchip.iso{background:#2563EB}.pchip.venture{background:#7C3AED}.pchip.cert{background:#0D9488}.pchip.esg{background:#16A34A}.pchip.etc{background:#64748B}
+.pfilter{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.pfilter button{border:1px solid var(--border2);background:#fff;border-radius:999px;padding:4px 11px;font-size:12px}
+.pfilter button.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.ld-row .nm{font-weight:700}
+.ld-row .ph{color:var(--primary);text-decoration:none;font-variant-numeric:tabular-nums;font-weight:600}
+.ld-row .ex{font-size:12px;color:var(--text3);margin-top:2px}
+.ld-row .why{font-size:12px;font-weight:700;color:var(--text2)}
+.ld-row.alert .why{color:var(--danger)}
+.counts div.lead{cursor:pointer;border-color:#FBCFE8;background:#FDF2F8}
 .sec.c-idea>h2{border-left:4px solid var(--idea)}
 .sec.c-ing>h2{border-left:4px solid var(--ing)}
 .sec.c-todo>h2{border-left:4px solid var(--todo)}
@@ -182,6 +198,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/fireba
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-auth.js";
 import { getFirestore, collection, doc, onSnapshot, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 import * as core from './worker/src/core.js';
+import * as LD from './worker/src/leads.js';
 
 const API = 'https://sg-todo.sgsolution.workers.dev';
 const ALLOWED = ['sgceo@sgsolutionss.com'];   // 쓰기 창구 ALLOWED_EMAILS · Firestore 규칙과 같게
@@ -198,10 +215,11 @@ const db = getFirestore(app);
 
 const CATS = core.CAT_LABEL;   // 업무 분야(중분류) — core.js CATEGORIES 한 곳
 const SRC = { manual:'손 입력', chat:'채팅', voice:'음성', cert:'인증 갱신', iso:'ISO', annual:'연간신고', lead:'잠재고객', card:'업체카드', secretary:'비서', repeat:'반복' };
-const VIEWS = [['today','할 일'],['company','기업별'],['week','주간'],['done','완료·휴지통'],['admin','관리']];
+const VIEWS = [['today','할 일'],['leads','📣 광고 DB'],['company','기업별'],['week','주간'],['done','완료·휴지통'],['admin','관리']];
 const LS = { me:'sgtodo_me', view:'sgtodo_view' };
 const ls = { get:(k,d)=>{try{return localStorage.getItem(k)??d;}catch{return d;}}, set:(k,v)=>{try{localStorage.setItem(k,v);}catch{}} };
 
+let leads = [], leadSync = {}, leadProduct = ls.get('sgtodo_lp', '');
 let todos = [], companies = [], rules = { ...core.RULES_DEFAULT }, acts = [];
 let me = ls.get(LS.me, ''), view = ls.get(LS.view, 'today'), weekOffset = 0, started = false, unsub = [];
 let hashOpened = false, migPreview = null, autoPreview = null, stPreview = null;
@@ -258,6 +276,9 @@ function start() {
   unsub.push(onSnapshot(doc(db, 'app_state', 'config'), s => { rules = { ...core.RULES_DEFAULT, ...((s.exists() && s.data().todoRules) || {}) }; render(); }));
   unsub.push(onSnapshot(query(collection(db, 'activity'), orderBy('at', 'desc'), limit(20)), s => { acts = s.docs.map(d => d.data()); renderActs(); },
     () => { document.getElementById('acts').innerHTML = '<div class="empty">아직 기록이 없습니다.</div>'; }));
+  unsub.push(onSnapshot(collection(db, 'leads'), s => { leads = s.docs.map(d => ({ _id: d.id, ...d.data() })); render(); },
+    e => console.warn('[광고 DB] 읽기 실패', e.message)));
+  unsub.push(onSnapshot(doc(db, 'app_state', 'lead_sync'), s => { leadSync = s.exists() ? s.data() : {}; if (view === 'leads') render(); }));
   setInterval(render, 60000);   // 「며칠째」·D-n 계산을 맞추려고 1분마다 다시 그림
   if (!me) setTimeout(pickMe, 300);
 }
@@ -389,7 +410,9 @@ function render() {
   const recent = g.done.filter(t => doneDay(t) >= core.addDays(today, -6));
   const alerts = g.ing.filter(t => t._b.alert).length + g.todo.filter(t => t._b.alert).length;
   const missed = g.call.filter(t => t._b.alert).length, callsToday = g.call.filter(t => t._b.days === 0).length;
+  const lp = leads.map(l => LD.presentLead(l, now())), lNew = lp.filter(x => x.col === 'new').length, lCall = lp.filter(x => x.col === 'call').length, lAlert = lp.filter(x => x.alert).length;
   const counts = '<div class="counts">'
+    + (lNew + lCall ? '<div class="lead" onclick="setView(\'leads\')"><b style="color:' + (lAlert ? 'var(--danger)' : '#DB2777') + '">' + (lNew + lCall) + '</b><span>📣 광고 DB 전화 (새 ' + lNew + ')</span></div>' : '')
     + '<div><b style="color:' + (missed ? 'var(--danger)' : 'var(--call)') + '">' + (callsToday + missed) + '</b><span>' + (missed ? '📞 오늘·놓친 통화' : '📞 오늘 통화') + '</span></div>'
     + '<div><b style="color:var(--ing)">' + g.ing.length + '</b><span>진행 업무</span></div>'
     + '<div><b style="color:var(--todo)">' + g.todo.length + '</b><span>예정 업무</span></div>'
@@ -444,11 +467,144 @@ function render() {
     const done = withBucket(todos.filter(t => !t.deletedAt && (t.status === 'done' || t.status === 'cancel'))).sort(sortDone).slice(0, 100);
     const trash = withBucket(todos.filter(t => t.deletedAt)).sort((a, b) => b.deletedAt - a.deletedAt);
     el.innerHTML = section('✅ 완료 업무', '완료한 날 최근 순 · 100건', done) + section('🗑️ 휴지통', core.TRASH_DAYS + '일 뒤 완전 삭제', trash);
+  } else if (view === 'leads') {
+    el.innerHTML = renderLeads();
   } else if (view === 'admin') {
     el.innerHTML = renderAdmin();
   }
 }
 function weekMove(n) { weekOffset = n === 0 ? 0 : weekOffset + n; render(); }
+
+// ── 📣 광고 DB ── Meta 광고 신청자. 5분마다 쓰기 창구가 Meta에서 가져온다(예비: 엑셀 올리기). 규칙은 worker/src/leads.js
+const agoTxt = ms => { if (!ms) return '—'; const m = Math.floor((now() - ms) / 60000); return m < 1 ? '방금' : m < 60 ? m + '분 전' : m < 1440 ? Math.floor(m / 60) + '시간 전' : Math.floor(m / 1440) + '일 전'; };
+const kstHM = ms => new Date(ms + 9 * 3600000).toISOString().slice(5, 16).replace('T', ' ').replace('-', '/');
+function leadRow(p) {
+  const L = esc(p.label);
+  const btn = (a, t, title) => '<button class="btn sm" onclick="leadAct(\'' + L + '\',\'' + a + '\')"' + (title ? ' title="' + title + '"' : '') + '>' + t + '</button>';
+  const acts = p.col === 'closed' ? btn('reopen', '다시 열기')
+    : btn('noans', '부재', '안 받음 — 다음 영업일 재통화(3번째면 연락 안 됨)') + btn('talk', '통화됨', '상담 이어감 — 다시 걸 날 정하기') + btn('schedule', '약속', '통화 약속 날짜·시각')
+      + btn('won', '전환', '고객 전환 — 진행 업무 할 일이 생김') + btn('lost', '거절', '관심 없음·잘못된 번호');
+  const memoLast = (p.memo || '').trim().split('\n').pop();
+  return '<div class="row ld-row' + (p.alert ? ' alert' : '') + (p.col === 'closed' ? ' done' : '') + '">'
+    + '<div class="body" style="flex:1;min-width:0">'
+      + '<div class="t"><span class="pchip ' + esc(p.product) + '">' + esc(p.productLabel) + '</span> <span class="nm">' + esc(p.name || '(이름 없음)') + '</span>'
+        + (p.company ? ' <span style="color:var(--text2)">· ' + esc(p.company) + '</span>' : '')
+        + (p.phone ? ' <a class="ph" href="tel:' + esc(p.phone.replace(/-/g, '')) + '">☎ ' + esc(p.phone) + '</a>' : '') + '</div>'
+      + '<div class="meta"><span class="no">' + L + '</span><span class="why">' + esc(p.reason) + '</span><span style="color:var(--text4)">· 신청 ' + (p.receivedAt ? kstHM(p.receivedAt) : '—') + '</span></div>'
+      + (p.extras.length ? '<div class="ex">' + p.extras.map(([q, a]) => esc(q) + ': <b>' + esc(a) + '</b>').join(' · ') + '</div>' : '')
+      + (memoLast ? '<div class="ex">📝 ' + esc(memoLast) + '</div>' : '')
+    + '</div><div class="acts" style="flex-wrap:wrap;justify-content:flex-end;max-width:260px">' + acts + '</div></div>';
+}
+function renderLeads() {
+  const all = leads.map(l => LD.presentLead(l, now()));
+  const list = all.filter(p => !leadProduct || p.product === leadProduct);
+  const by = c => list.filter(p => p.col === c);
+  const nw = by('new').sort((a, b) => a.receivedAt - b.receivedAt);
+  const call = by('call').sort((a, b) => (b.alert - a.alert) || a.nextCallDate.localeCompare(b.nextCallDate) || (a.nextCallTime || '99').localeCompare(b.nextCallTime || '99'));
+  const later = by('later').sort((a, b) => (a.nextCallDate || '9999').localeCompare(b.nextCallDate || '9999'));
+  const closed = by('closed').sort((a, b) => b.receivedAt - a.receivedAt).slice(0, 50);
+  const ss = leadSync || {};
+  const syncTxt = !ss.lastRunAt ? 'Meta 자동 가져오기 연결 전 — 연결되면 5분마다 들어옵니다'
+    : ss.lastError && (ss.lastErrorAt || 0) >= (ss.lastOkAt || 0) ? '⚠ Meta 가져오기 실패(' + agoTxt(ss.lastErrorAt) + '): ' + ss.lastError
+    : 'Meta 자동 · ' + agoTxt(ss.lastOkAt) + ' 확인' + (ss.forms && ss.forms.length ? ' · 양식 ' + ss.forms.length + '개' : '');
+  const bad = /^⚠/.test(syncTxt);
+  const pcount = k => all.filter(p => p.col !== 'closed' && (!k || p.product === k)).length;
+  const sec = (title, sub, arr, cls, open = true) => {
+    const inner = arr.length ? arr.map(leadRow).join('') : '<div class="empty">없습니다</div>';
+    return open ? '<div class="sec ' + cls + '"><h2>' + title + ' <small>' + sub + '</small><span class="cnt">' + arr.length + '</span></h2>' + inner + '</div>'
+      : '<div class="sec ' + cls + '"><details><summary>' + title + ' (' + arr.length + ') — ' + sub + '</summary>' + inner + '</details></div>';
+  };
+  return '<div class="ld-top"><span class="sync' + (bad ? ' bad' : '') + '">' + esc(syncTxt) + '</span>'
+      + '<button class="btn sm" onclick="leadSyncNow()">⟳ 지금 가져오기</button>'
+      + '<button class="btn sm" onclick="document.getElementById(\'ld-file\').click()" title="Meta에서 받은 엑셀·CSV — 자동이 안 될 때 예비">📄 엑셀 올리기</button>'
+      + '<button class="btn sm" onclick="leadStatsOpen()">📊 광고별 성과</button>'
+      + '<input type="file" id="ld-file" accept=".csv,.tsv,.xlsx,.xls" multiple class="hidden" onchange="leadUpload(this.files)"></div>'
+    + '<div class="pfilter">' + [['', '전체']].concat(LD.PRODUCTS).filter(([k]) => k !== 'etc' || pcount('etc')).map(([k, n]) =>
+        '<button class="' + (leadProduct === k ? 'on' : '') + '" onclick="leadFilter(\'' + k + '\')">' + esc(n) + ' ' + pcount(k) + '</button>').join('') + '</div>'
+    + sec('🆕 새 DB', '아직 한 번도 안 건 곳 · 들어온 순 · 24시간 지나면 빨강', nw, 'c-lead')
+    + sec('📞 오늘 걸 곳', '재통화·상담 약속이 오늘이거나 지남', call, 'c-call')
+    + sec('⏳ 재통화 앞날 · 상담 중', '날짜가 오면 「오늘 걸 곳」으로 · 부재 ' + LD.MAX_TRIES + '번이면 연락 안 됨', later, 'c-todo')
+    + sec('끝난 DB', '고객 전환 · 거절 · 연락 안 됨 (최근 50)', closed, 'c-done', false);
+}
+function leadFilter(k) { leadProduct = k; ls.set('sgtodo_lp', k); render(); }
+async function leadAct(L, action) {
+  const l = leads.find(x => LD.leadLabel(x.no) === L); if (!l) return;
+  const who = (l.name || L) + (l.company ? '(' + l.company + ')' : '');
+  const body = { action };
+  if (action === 'talk' || action === 'schedule') {
+    const d = prompt(who + '\n' + (action === 'talk' ? '통화됨 — 다시 걸 날 (비우면 날짜 없이 상담 중)' : '언제 통화하기로 했나요?') + '\n예: 내일, 10/20, +3', action === 'schedule' ? '내일' : '');
+    if (d === null) return; if (d.trim()) body.date = d.trim();
+    if (body.date) { const tm = prompt('몇 시에? (예: 14:00, 오후 2시 · 비우면 시간 미정)', ''); if (tm === null) return; if (tm.trim()) body.time = tm.trim(); }
+    const mm = prompt('통화 내용 메모 (선택)', ''); if (mm === null) return; if (mm.trim()) body.memo = mm.trim();
+  } else if (action === 'lost') {
+    const mm = prompt(who + '\n거절·무효 이유 (예: 관심 없음, 잘못된 번호)', ''); if (mm === null) return; if (mm.trim()) body.memo = mm.trim();
+  } else if (action === 'won') {
+    if (!confirm(who + '\n고객 전환으로 기록할까요? 진행 업무에 할 일이 하나 생깁니다.')) return;
+  }
+  try {
+    const r = await api('POST', '/api/leads/' + L + '/act', body);
+    toast(esc(L + ' ' + r.what) + (r.todo ? ' · 할 일 ' + esc(r.todo) + ' 생김' : ''));
+  } catch (e) { fail(e); }
+}
+async function leadSyncNow() {
+  try {
+    const r = await api('POST', '/api/leads/sync', {});
+    if (!r.ok) { toast('가져오지 못했습니다: ' + esc(r.error), true); return; }
+    toast('Meta 확인 ' + r.fetched + '건 · 새로 들어옴 ' + r.created.length + '건');
+  } catch (e) { fail(e); }
+}
+async function leadStatsOpen() {
+  try {
+    const r = await api('GET', '/api/leads/stats?days=30');
+    const pct = (a, b) => b ? Math.round(a * 100 / b) + '%' : '—';
+    openModal('<h3>📊 광고별 성과 <small style="font-weight:400;color:var(--text3)">최근 30일 들어온 DB</small></h3>'
+      + '<table style="width:100%;border-collapse:collapse;font-size:13px"><tr style="text-align:left;color:var(--text3)"><th>광고</th><th>들어옴</th><th>통화 연결</th><th>고객 전환</th><th>거절</th><th>연락 안 됨</th><th>진행 중</th></tr>'
+      + r.stats.map(x => '<tr style="border-top:1px solid var(--border)"><td><span class="pchip ' + x.product + '">' + esc(x.label) + '</span></td><td><b>' + x.received + '</b></td><td>' + x.reached + ' (' + pct(x.reached, x.received) + ')</td><td><b>' + x.won + '</b> (' + pct(x.won, x.received) + ')</td><td>' + x.lost + '</td><td>' + x.unreach + '</td><td>' + x.waiting + '</td></tr>').join('')
+      + '</table><div class="foot"><span class="sp"></span><button class="btn" onclick="closeModal()">닫기</button></div>');
+  } catch (e) { fail(e); }
+}
+// 엑셀·CSV 읽기 — Meta 내려받기 CSV는 UTF-16·탭 구분인 경우가 많다. xlsx는 SheetJS를 그때 불러 읽는다
+function parseDelimited(text) {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n').filter(x => x.trim());
+  if (!lines.length) return [];
+  const sep = (lines[0].match(/\t/g) || []).length > (lines[0].match(/,/g) || []).length ? '\t' : ',';
+  const split = line => {
+    const out = []; let cur = '', q = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (q) { if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; }
+      else if (c === '"') q = true; else if (c === sep) { out.push(cur); cur = ''; } else cur += c;
+    }
+    out.push(cur); return out;
+  };
+  const head = split(lines[0]).map(h => h.replace(/^﻿/, '').trim());
+  return lines.slice(1).map(l => { const v = split(l); return Object.fromEntries(head.map((h, i) => [h, (v[i] ?? '').trim()])); });
+}
+async function readSheet(file) {
+  const buf = await file.arrayBuffer();
+  if (/\.xlsx?$/i.test(file.name)) {
+    if (!window.XLSX) await new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload = ok; sc.onerror = () => no(new Error('엑셀 읽기 도구를 불러오지 못했습니다')); document.head.appendChild(sc); });
+    const wb = window.XLSX.read(buf, { type: 'array' });
+    return window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false });
+  }
+  const u = new Uint8Array(buf);
+  const enc = u[0] === 0xFF && u[1] === 0xFE ? 'utf-16le' : u[0] === 0xFE && u[1] === 0xFF ? 'utf-16be' : 'utf-8';
+  return parseDelimited(new TextDecoder(enc).decode(buf));
+}
+async function leadUpload(files) {
+  const inp = document.getElementById('ld-file');
+  try {
+    let made = 0, skip = 0;
+    for (const f of [...files]) {
+      const rows = (await readSheet(f)).filter(r => Object.values(r).some(v => String(v).trim()));
+      if (!rows.length) { toast(esc(f.name) + ': 읽을 줄이 없습니다', true); continue; }
+      const r = await api('POST', '/api/leads/import', { rows, fileName: f.name });
+      made += r.created.length; skip += r.skipped;
+    }
+    toast('엑셀에서 새로 들어옴 ' + made + '건 · 이미 있던 것 ' + skip + '건 건너뜀');
+  } catch (e) { fail(e); }
+  if (inp) inp.value = '';
+}
 
 // ── 버튼 동작 ──
 async function act(id, what) {
@@ -784,7 +940,7 @@ async function migApply() {
 }
 
 window.addEventListener('hashchange', () => { hashOpened = false; openFromHash(); });
-Object.assign(window, { fStatusChange, openIdea, signIn, signOutNow, pickMe, setMe, setView, act, quickAdd, quickHint, openEdit, saveEdit, delTodo, closeModal, weekMove, migPrev, migApply, autoPrev, autoRun, openTask, setDoneDay, submitDone, stPrev, stApply });
+Object.assign(window, { leadAct, leadFilter, leadSyncNow, leadStatsOpen, leadUpload, fStatusChange, openIdea, signIn, signOutNow, pickMe, setMe, setView, act, quickAdd, quickHint, openEdit, saveEdit, delTodo, closeModal, weekMove, migPrev, migApply, autoPrev, autoRun, openTask, setDoneDay, submitDone, stPrev, stApply });
 </script>
 </body>
 </html>
