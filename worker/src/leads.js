@@ -369,6 +369,12 @@ export async function syncMeta(env, db, { nowMs = Date.now(), fetchFn = fetch, a
   const ver = env.META_API_VERSION || 'v26.0';
   const base = 'https://graph.facebook.com/' + ver + '/';
   const prev = (await db.get(SYNC_PATH))?.data || {};
+  // 📒 통화 이력을 처음 쓰는 날 한 번: 지난 기록 옮겨 채우기 — Meta 가져오기가 실패해도 먼저 한다(10/14: 토큰 오류로 못 하던 것)
+  let callsBackfilledAt = prev.callsBackfilledAt || null;
+  if (!callsBackfilledAt) {
+    try { const b = await backfillLeadCalls(db, { sinceMs: prev.resetAt || prev.startFrom || 0 }); callsBackfilledAt = nowMs; console.log('[광고 DB] 통화 이력 옮겨 채움', b); }
+    catch (e) { console.warn('[광고 DB] 통화 이력 옮기기 실패', e && e.message); }
+  }
   // startFrom = 「이 날 이후 신청만」(lead_reset으로 정함) — 처음·전체 다시 받기도 그 앞으로는 가지 않는다
   const sinceMs = full || !prev.lastTime ? Math.max(nowMs - BACKFILL_DAYS * 86400000, prev.startFrom || 0) : Math.max(prev.lastTime - 10 * 60000, prev.startFrom || 0);
   const graph = async (url) => {
@@ -396,7 +402,7 @@ export async function syncMeta(env, db, { nowMs = Date.now(), fetchFn = fetch, a
       }
     }
   } catch (e) {
-    await db.transaction(async tx => tx.set(SYNC_PATH, Object.assign({}, prev, { lastRunAt: nowMs, lastError: String(e.message || e).slice(0, 300), lastErrorAt: nowMs })));
+    await db.transaction(async tx => tx.set(SYNC_PATH, Object.assign({}, prev, { callsBackfilledAt, lastRunAt: nowMs, lastError: String(e.message || e).slice(0, 300), lastErrorAt: nowMs })));
     return { ok: false, error: String(e.message || e) };
   }
   // 10분 겹쳐 묻기 때문에 지난번에 이미 받은 리드가 또 온다 → lead_sync에 적어 둔 최근 ID로 먼저 걸러,
@@ -404,12 +410,6 @@ export async function syncMeta(env, db, { nowMs = Date.now(), fetchFn = fetch, a
   const known = new Set(full ? [] : prev.recentIds || []);
   const fresh = items.filter(x => !x.metaId || !known.has(x.metaId));
   const r = fresh.length ? await importLeads({ db, actor, nowMs }, fresh, { source: 'meta' }) : { created: [], skipped: 0 };
-  // 📒 통화 이력을 처음 쓰는 날 한 번: 지난 기록 옮겨 채우기(실패해도 가져오기는 계속)
-  let callsBackfilledAt = prev.callsBackfilledAt || null;
-  if (!callsBackfilledAt) {
-    try { const b = await backfillLeadCalls(db, { sinceMs: prev.resetAt || prev.startFrom || 0 }); callsBackfilledAt = nowMs; console.log('[광고 DB] 통화 이력 옮겨 채움', b); }
-    catch (e) { console.warn('[광고 DB] 통화 이력 옮기기 실패', e && e.message); }
-  }
   const lastTime = Math.max(prev.lastTime || 0, ...items.map(x => x.receivedAt || 0));
   const recentIds = items.filter(x => x.metaId && (x.receivedAt || 0) >= lastTime - 15 * 60000).map(x => x.metaId).slice(0, 200);
   await db.transaction(async tx => tx.set(SYNC_PATH, { lastRunAt: nowMs, lastOkAt: nowMs, lastTime: lastTime || prev.lastTime || 0, lastError: '', lastErrorAt: prev.lastErrorAt || null,
