@@ -8,13 +8,18 @@
 //   부재를 누르면 다음 영업일 재통화(nextCallDate)가 잡히고, 3번째 부재면 연락 안 됨으로 닫힌다
 //   새 DB가 들어온 지 24시간 넘게 전화 안 했으면 빨간 표시, 재통화 날짜가 지났어도 빨간 표시
 // 담당 assignee 기본 = 정석진(사장님 지시 10/13)
+//
+// 📒 통화 이력 calls (2026-10-14 사장님: DB가 들어와서 미팅 잡힐 때까지 통화한 내용을 남긴다)
+//   전화 결과·메모를 남길 때마다 [{at, by, action, what}] 한 줄씩 쌓는다(덮어쓰지 않음, 최근 100줄).
+//   🤝 미팅 약속(meeting) = 이력의 끝 — 상태 meet(미팅 예정), 날짜 meetDate·시각 meetTime. 미팅 뒤 결과는 전환(won)·거절(lost)
+//   이력을 남기기 전 기록(10/13~)은 activity에서 한 번 옮겨 채운다(backfillLeadCalls — 5분 가져오기 때 한 번만)
 
 import { RuleError, kstToday, addDays, parseDue } from './core.js';
 import { NotFoundError, createTodo } from './todos.js';
 
 export const PRODUCTS = [['iso', 'ISO심사'], ['venture', '벤처인증'], ['cert', '기업인증'], ['esg', 'ESG인증'], ['etc', '기타']];
 export const PRODUCT_LABEL = Object.fromEntries(PRODUCTS);
-export const LEAD_STATUS = { new: '🆕 새 DB', noans: '📞 부재', talk: '💬 상담 중', won: '✅ 고객 전환', lost: '✖ 거절·무효', unreach: '📵 연락 안 됨' };
+export const LEAD_STATUS = { new: '🆕 새 DB', noans: '📞 부재', talk: '💬 상담 중', meet: '🤝 미팅 예정', won: '✅ 고객 전환', lost: '✖ 거절·무효', unreach: '📵 연락 안 됨' };
 export const CLOSED = ['won', 'lost', 'unreach'];
 export const MAX_TRIES = 3;
 export const NEW_ALERT_HOURS = 24;
@@ -123,8 +128,13 @@ export function leadState(l, nowMs = Date.now()) {
     const ago = h < 1 ? '방금' : h < 24 ? h + '시간 전' : Math.floor(h / 24) + '일 전';
     return { col: 'new', alert: h >= NEW_ALERT_HOURS, reason: '🆕 ' + ago + ' 들어옴' + (h >= NEW_ALERT_HOURS ? ' · 아직 전화 안 함' : '') };
   }
+  if (l.status === 'meet' && !(l.nextCallDate && l.nextCallDate <= today)) {
+    const md = (l.meetDate || '').slice(5).replace('-', '/') + (l.meetTime ? ' ' + l.meetTime : '');
+    const past = l.meetDate && l.meetDate < today;
+    return { col: 'meet', alert: !!past, reason: '🤝 미팅 ' + (l.meetDate === today ? '오늘' + (l.meetTime ? ' ' + l.meetTime : '') : md) + (past ? ' 지남 · 결과(전환·거절) 남기기' : '') };
+  }
   const when = l.nextCallDate ? (l.nextCallDate === today ? '오늘' : l.nextCallDate === addDays(today, 1) ? '내일' : l.nextCallDate.slice(5).replace('-', '/')) + (l.nextCallTime ? ' ' + l.nextCallTime : '') : '';
-  const head = l.status === 'noans' ? '📞 부재 ' + (l.tries || 0) + '/' + MAX_TRIES : '💬 상담 중';
+  const head = l.status === 'noans' ? '📞 부재 ' + (l.tries || 0) + '/' + MAX_TRIES : l.status === 'meet' ? '🤝 미팅 전' : '💬 상담 중';
   if (l.nextCallDate && l.nextCallDate <= today) {
     const late = l.nextCallDate < today;
     return { col: 'call', alert: late, reason: head + ' · ' + (late ? when + ' 걸기로 했는데 지남' : '오늘 ' + (l.status === 'noans' ? '재통화' : '통화') + (l.nextCallTime ? ' ' + l.nextCallTime : '')) };
@@ -139,7 +149,8 @@ export function nextBizDay(day) {
   return d;
 }
 
-export const LEAD_ACTIONS = ['noans', 'talk', 'schedule', 'won', 'lost', 'reopen', 'memo'];
+export const LEAD_ACTIONS = ['noans', 'talk', 'schedule', 'meeting', 'won', 'lost', 'reopen', 'memo'];
+export const CALLS_MAX = 100;
 // 동작 하나 → 바뀔 값 + 기록 한 줄 (순수 함수 — 시험하기 쉽게)
 //   opts: {date?, time?, memo?}  date = 「내일」「10/20」「+3」 · time = 「14:00」「오후 2시」
 export function applyLeadAction(l, action, opts = {}, nowMs = Date.now()) {
@@ -153,15 +164,19 @@ export function applyLeadAction(l, action, opts = {}, nowMs = Date.now()) {
     const tries = (l.tries || 0) + 1;
     w.tries = tries; w.lastCallAt = nowMs;
     if (tries >= MAX_TRIES && !date) { w.status = 'unreach'; w.nextCallDate = ''; w.nextCallTime = ''; what = '부재 ' + tries + '번째 → 📵 연락 안 됨'; }
-    else { w.status = l.status === 'talk' ? 'talk' : 'noans'; w.nextCallDate = date || nextBizDay(today); w.nextCallTime = time; what = '부재 ' + tries + '번째 → ' + w.nextCallDate.slice(5).replace('-', '/') + (time ? ' ' + time : '') + ' 다시 걸기'; }
+    else { w.status = ['talk', 'meet'].includes(l.status) ? l.status : 'noans'; w.nextCallDate = date || nextBizDay(today); w.nextCallTime = time; what = '부재 ' + tries + '번째 → ' + w.nextCallDate.slice(5).replace('-', '/') + (time ? ' ' + time : '') + ' 다시 걸기'; }
   } else if (action === 'talk') {
-    w.status = 'talk'; w.lastCallAt = nowMs; w.nextCallDate = date; w.nextCallTime = date ? time : '';
-    what = '통화됨 → 💬 상담 중' + (date ? ' · ' + date.slice(5).replace('-', '/') + (time ? ' ' + time : '') + ' 다시 통화' : '');
+    w.status = l.status === 'meet' ? 'meet' : 'talk'; w.lastCallAt = nowMs; w.nextCallDate = date; w.nextCallTime = date ? time : '';   // 미팅 잡힌 뒤 통화해도 미팅 예정 유지
+    what = '통화됨 → ' + LEAD_STATUS[w.status] + (date ? ' · ' + date.slice(5).replace('-', '/') + (time ? ' ' + time : '') + ' 다시 통화' : '');
   } else if (action === 'schedule') {
     if (!date) throw new RuleError('언제 걸지 date가 필요합니다 (예: 내일, 10/20)');
     w.nextCallDate = date; w.nextCallTime = time;
     if (l.status === 'new') w.status = 'talk';
     what = '통화 약속 ' + date.slice(5).replace('-', '/') + (time ? ' ' + time : '');
+  } else if (action === 'meeting') {
+    if (!date) throw new RuleError('미팅 날짜(date)가 필요합니다 (예: 10/15, 다음 주 목요일은 날짜로)');
+    w.status = 'meet'; w.meetDate = date; w.meetTime = time; w.lastCallAt = nowMs; w.nextCallDate = ''; w.nextCallTime = '';
+    what = '🤝 미팅 약속 ' + date.slice(5).replace('-', '/') + (time ? ' ' + time : '');
   } else if (action === 'won') {
     w.status = 'won'; w.closedAt = nowMs; w.nextCallDate = ''; w.nextCallTime = ''; what = '✅ 고객 전환';
   } else if (action === 'lost') {
@@ -173,7 +188,7 @@ export function applyLeadAction(l, action, opts = {}, nowMs = Date.now()) {
     what = '다시 열기 → ' + LEAD_STATUS[w.status];
   } else if (action === 'memo') {
     if (!String(opts.memo || '').trim()) throw new RuleError('memo 내용이 필요합니다');
-    what = '메모';
+    what = '📝 ' + String(opts.memo).trim();
   }
   if (opts.memo && String(opts.memo).trim()) {
     const line = today.slice(5).replace('-', '/') + ' ' + String(opts.memo).trim();
@@ -208,14 +223,24 @@ export function presentLead(l, nowMs = Date.now()) {
     name: l.name || '', phone: l.phone || '', company: l.company || '', email: l.email || '', status: l.status, statusLabel: LEAD_STATUS[l.status] || '',
     tries: l.tries || 0, nextCallDate: l.nextCallDate || '', nextCallTime: l.nextCallTime || '', receivedAt: l.receivedAt || 0,
     city: leadPick(l.extras, 'city'), bizType: leadPick(l.extras, 'bizType'), industry: leadPick(l.extras, 'industry'),
+    meetDate: l.meetDate || '', meetTime: l.meetTime || '', calls: Array.isArray(l.calls) ? l.calls : [],
     extras: extrasPairs(l), memo: l.memo || '', assignee: l.assignee || '', formName: l.formName || '', col: st.col, alert: st.alert, reason: st.reason,
   };
 }
 export function leadLine(p) {
-  const info = [p.city, p.bizType, p.industry].filter(Boolean).join(' · ');
+  const info = [p.city, p.bizType, p.industry, p.calls && p.calls.length ? '📒 통화 기록 ' + p.calls.length + '줄' : ''].filter(Boolean).join(' · ');
   return p.label + ' [' + p.productLabel + ' · ' + p.reason + (p.alert ? ' 🔴' : '') + '] ' + (p.name || '(이름 없음)') + (p.company ? ' · ' + p.company : '') + (p.phone ? ' ☎ ' + p.phone : '')
     + (info ? ' — ' + info : '') + (p.formName ? ' 〔' + p.formName + '〕' : '');
 }
+
+// 📒 통화 이력 보기 — 들어옴(신청 시각) + 쌓인 기록. 웹 화면·Claude 공용
+const kstMDHM = (ms) => new Date(ms + 9 * HOUR).toISOString().slice(5, 16).replace('-', '/').replace('T', ' ');
+export function leadHistory(l) {
+  const rows = [{ at: l.receivedAt || l.createdAt || 0, by: '', action: 'in', what: '📥 들어옴 — ' + (PRODUCT_LABEL[l.product] || '기타') + ' 광고' + (l.formName ? ' 〔' + l.formName + '〕' : '') }];
+  return rows.concat((Array.isArray(l.calls) ? l.calls : []).slice().sort((a, b) => (a.at || 0) - (b.at || 0)))
+    .map(c => Object.assign({}, c, { when: c.at ? kstMDHM(c.at) : '' }));
+}
+export const historyLine = (h) => h.when + ' ' + h.what + (h.by ? ' — ' + h.by : '');
 
 const activityPath = (nowMs) => 'activity/' + nowMs + '-' + Math.random().toString(36).slice(2, 10);
 function activity(ref, no, action, summary, actor, nowMs) {
@@ -269,6 +294,9 @@ async function findLead(reader, noInput) {
   return rows[0];
 }
 
+// 하나 읽기(통화 이력 보기용)
+export async function getLead(db, noInput) { return (await findLead(db, noInput)).data; }
+
 // ── 전화 결과 기록 ── 고객 전환이면 할 일(진행 업무)도 하나 만든다 (출처 lead, 같은 DB로 두 번 안 만듦)
 const PRODUCT_CAT = { iso: 'iso', venture: 'ven', cert: 'ven', esg: 'etc', etc: 'etc' };
 export async function actLead(ctx, noInput, action, opts = {}) {
@@ -278,6 +306,7 @@ export async function actLead(ctx, noInput, action, opts = {}) {
     const l = doc.data;
     const { write, what } = applyLeadAction(l, action, opts, nowMs);
     Object.assign(write, { updatedAt: nowMs, updatedBy: actor.name });
+    write.calls = (Array.isArray(l.calls) ? l.calls : []).concat({ at: nowMs, by: actor.name, action, what }).slice(-CALLS_MAX);   // 📒 통화 이력 한 줄
     tx.update(doc.path, write);
     const label = leadLabel(l.no);
     const summary = label + ' ' + (l.name || '') + (l.company ? '(' + l.company + ')' : '') + ' · ' + what + ' — ' + actor.name;
@@ -304,16 +333,16 @@ export async function listLeads(db, { view = 'today', product = '', query = '', 
     if (pr && p.product !== pr) return false;
     if (q && ![p.name, p.company, p.phone, p.email, p.memo, p.label].concat((p.extras || []).map(e => e.join(' '))).join(' ').toLowerCase().includes(q.replace(/-/g, '')) &&
       !String(p.phone).replace(/-/g, '').includes(q.replace(/-/g, ''))) return false;
-    if (view === 'today') return p.col === 'new' || p.col === 'call';
+    if (view === 'today') return p.col === 'new' || p.col === 'call' || (p.col === 'meet' && p.alert);
     if (view === 'open') return p.col !== 'closed';
-    if (['new', 'call', 'later', 'closed'].includes(view)) return p.col === view;
+    if (['new', 'call', 'meet', 'later', 'closed'].includes(view)) return p.col === view;
     return true;
   });
-  const ord = { new: 0, call: 1, later: 2, closed: 3 };
+  const ord = { new: 0, call: 1, meet: 2, later: 3, closed: 4 };
   pick.sort((a, b) => ord[a.col] - ord[b.col] || (b.alert - a.alert)
-    || (a.col === 'new' ? a.receivedAt - b.receivedAt : a.col === 'closed' ? b.receivedAt - a.receivedAt : (a.nextCallDate || '9999').localeCompare(b.nextCallDate || '9999') || (a.nextCallTime || '99').localeCompare(b.nextCallTime || '99')));
+    || (a.col === 'new' ? a.receivedAt - b.receivedAt : a.col === 'closed' ? b.receivedAt - a.receivedAt : a.col === 'meet' ? (a.meetDate + a.meetTime).localeCompare(b.meetDate + b.meetTime) : (a.nextCallDate || '9999').localeCompare(b.nextCallDate || '9999') || (a.nextCallTime || '99').localeCompare(b.nextCallTime || '99')));
   const open = rows.filter(p => p.col !== 'closed');
-  const counts = { new: open.filter(p => p.col === 'new').length, call: open.filter(p => p.col === 'call').length, later: open.filter(p => p.col === 'later').length, alert: open.filter(p => p.alert).length };
+  const counts = { new: open.filter(p => p.col === 'new').length, call: open.filter(p => p.col === 'call').length, later: open.filter(p => p.col === 'later').length, meet: open.filter(p => p.col === 'meet').length, alert: open.filter(p => p.alert).length };
   const byProduct = Object.fromEntries(PRODUCTS.map(([k]) => [k, open.filter(p => p.product === k).length]));
   return { view, total: pick.length, counts, byProduct, leads: pick.slice(0, Math.max(1, Math.min(200, limit))) };
 }
@@ -324,7 +353,7 @@ export async function leadStats(db, { days = 30 } = {}, nowMs = Date.now()) {
   const rows = (await db.list('leads')).map(d => d.data).filter(l => (l.receivedAt || 0) >= since);
   return PRODUCTS.map(([k, n]) => {
     const r = rows.filter(l => l.product === k);
-    return { product: k, label: n, received: r.length, reached: r.filter(l => ['talk', 'won'].includes(l.status) || (l.status === 'lost' && l.lastCallAt)).length,
+    return { product: k, label: n, received: r.length, reached: r.filter(l => ['talk', 'meet', 'won'].includes(l.status) || (l.status === 'lost' && l.lastCallAt)).length,
       won: r.filter(l => l.status === 'won').length, lost: r.filter(l => l.status === 'lost').length, unreach: r.filter(l => l.status === 'unreach').length,
       waiting: r.filter(l => !CLOSED.includes(l.status)).length };
   }).filter(s => s.received || s.product !== 'etc');
@@ -375,11 +404,40 @@ export async function syncMeta(env, db, { nowMs = Date.now(), fetchFn = fetch, a
   const known = new Set(full ? [] : prev.recentIds || []);
   const fresh = items.filter(x => !x.metaId || !known.has(x.metaId));
   const r = fresh.length ? await importLeads({ db, actor, nowMs }, fresh, { source: 'meta' }) : { created: [], skipped: 0 };
+  // 📒 통화 이력을 처음 쓰는 날 한 번: 지난 기록 옮겨 채우기(실패해도 가져오기는 계속)
+  let callsBackfilledAt = prev.callsBackfilledAt || null;
+  if (!callsBackfilledAt) {
+    try { const b = await backfillLeadCalls(db, { sinceMs: prev.resetAt || prev.startFrom || 0 }); callsBackfilledAt = nowMs; console.log('[광고 DB] 통화 이력 옮겨 채움', b); }
+    catch (e) { console.warn('[광고 DB] 통화 이력 옮기기 실패', e && e.message); }
+  }
   const lastTime = Math.max(prev.lastTime || 0, ...items.map(x => x.receivedAt || 0));
   const recentIds = items.filter(x => x.metaId && (x.receivedAt || 0) >= lastTime - 15 * 60000).map(x => x.metaId).slice(0, 200);
   await db.transaction(async tx => tx.set(SYNC_PATH, { lastRunAt: nowMs, lastOkAt: nowMs, lastTime: lastTime || prev.lastTime || 0, lastError: '', lastErrorAt: prev.lastErrorAt || null,
-    forms, fetched: items.length, created: r.created.length, totalCreated: (prev.totalCreated || 0) + r.created.length, recentIds, startFrom: prev.startFrom || 0 }));
+    forms, fetched: items.length, created: r.created.length, totalCreated: (prev.totalCreated || 0) + r.created.length, recentIds, startFrom: prev.startFrom || 0,
+    resetAt: prev.resetAt || null, callsBackfilledAt }));
   return { ok: true, fetched: items.length, created: r.created, skipped: r.skipped + (items.length - fresh.length), forms: forms.map(f => f.name + ' → ' + PRODUCT_LABEL[f.product]) };
+}
+
+// ── 📒 지난 통화 기록 옮겨 채우기 ── 이력(calls)이 아직 없는 DB에, activity에 남은 전화 결과를 시간순으로 넣는다
+//   sinceMs = 광고 DB를 비운 시각(lead_reset) — 그 앞 기록은 옛 번호라 섞지 않는다. 여러 번 해도 안전(calls가 있으면 건너뜀)
+export async function backfillLeadCalls(db, { sinceMs = 0 } = {}) {
+  return db.transaction(async (tx) => {
+    const acts = (await tx.query('activity', [['app', '==', 'lead']], {})).map(d => d.data)
+      .filter(a => (a.at || 0) > sinceMs && LEAD_ACTIONS.includes(a.action) && a.no);
+    const rows = await tx.query('leads', [], {});
+    let filled = 0, lines = 0;
+    for (const r of rows) {
+      if (Array.isArray(r.data.calls)) continue;
+      const calls = acts.filter(a => a.no === r.data.no).sort((a, b) => a.at - b.at).map(a => {
+        let w = String(a.summary || ''); const i = w.indexOf(' · '); if (i >= 0) w = w.slice(i + 3);
+        const j = w.lastIndexOf(' — '); if (j >= 0) w = w.slice(0, j);
+        return { at: a.at, by: a.by || '', action: a.action, what: w };
+      }).slice(-CALLS_MAX);
+      tx.update(r.path, { calls });
+      filled++; lines += calls.length;
+    }
+    return { filled, lines };
+  });
 }
 
 // ── 광고 DB 비우고 기준일부터 다시 ── (사장님 지시 10/13: 시험으로 들어온 90일치를 지우고 정한 날 이후 신청만 받기)

@@ -203,3 +203,52 @@ test('한 번에 12개까지 — 넘으면 남은 번호를 알려 줌(외부 �
   assert.equal((out.match(/휴지통으로 옮김/g) || []).length, 12);
   assert.match(out, /남은 2개\(13, 14\)는 다시/);
 });
+
+test('📒 통화 이력 — 들어옴부터 미팅까지 한 줄씩 쌓임 · 미팅 예정 칸 · Claude lead_history', async () => {
+  const db = db0();
+  const ctx = { db, actor, nowMs: NOW };
+  await importLeads(ctx, [fromMetaLead(metaLead('m1', '01011112222', 2), { id: 'f1', name: 'ISO인증심사' })]);
+  await actLead(Object.assign({}, ctx, { nowMs: NOW + H }), 'D-1', 'noans');
+  await actLead(Object.assign({}, ctx, { nowMs: NOW + 25 * H }), 'D-1', 'talk', { memo: '9001 견적 문의, 직원 30명' });
+  let r = await actLead(Object.assign({}, ctx, { nowMs: NOW + 26 * H }), 'D-1', 'meeting', { date: '10/16', time: '오전 10시 30분', memo: '본사 방문' });
+  assert.equal(r.lead.status, 'meet'); assert.equal(r.lead.col, 'meet'); assert.equal(r.lead.meetDate, '2026-10-16'); assert.equal(r.lead.meetTime, '10:30');
+  assert.match(r.lead.reason, /🤝 미팅 10\/16 10:30/);
+  const l = db.store.get('leads/D-0001');
+  assert.deepEqual(l.calls.map(c => c.action), ['noans', 'talk', 'meeting']);
+  assert.ok(l.calls.every(c => c.by === '정석진' && c.at));
+  assert.match(l.calls[1].what, /통화됨 → 💬 상담 중 · 9001 견적 문의/);
+  // 미팅 전 다시 통화해도 미팅 예정 유지 · 날짜 지나면 결과 남기라고 빨강
+  r = await actLead(Object.assign({}, ctx, { nowMs: NOW + 27 * H }), 'D-1', 'memo', { memo: '자료 미리 메일 보냄' });
+  assert.equal(r.lead.status, 'meet');
+  assert.equal(leadState(db.store.get('leads/D-0001'), NOW + 5 * 24 * H).alert, true);
+  // 목록: meet 보기 · 오늘 보기엔 지난 미팅만
+  assert.equal((await listLeads(db, { view: 'meet' }, NOW + 27 * H)).total, 1);
+  assert.equal((await listLeads(db, { view: 'today' }, NOW + 27 * H)).total, 0);
+  assert.equal((await listLeads(db, { view: 'today' }, NOW + 5 * 24 * H)).total, 1);
+  // Claude: 번호·이름으로
+  const deps = { db, email: 'x', nowMs: NOW + 27 * H };
+  let out = await callTool('lead_history', { no: 'D-0001' }, deps);
+  assert.match(out, /📥 들어옴 — ISO심사 광고 〔ISO인증심사〕/);
+  assert.match(out, /부재 1번째/); assert.match(out, /🤝 미팅 약속 10\/16 10:30 · 본사 방문 — 정석진/); assert.match(out, /자료 미리 메일 보냄/);
+  out = await callTool('lead_history', { query: '01011112222' }, deps);
+  assert.match(out, /D-0001/);
+  await assert.rejects(() => callTool('lead_update', { no: 1, action: 'meeting', author: '정석진' }, deps), /미팅 날짜/);
+});
+
+test('📒 지난 기록 옮겨 채우기 — activity에서 시간순, 비우기 전 기록·이미 있는 이력은 건드리지 않음', async () => {
+  const { backfillLeadCalls } = await import('../src/leads.js');
+  const db = fakeDb({
+    'leads/D-0001': { no: 1, name: '하윤수', status: 'talk' },
+    'leads/D-0002': { no: 2, name: '김철수', status: 'new', calls: [{ at: 1, by: 'x', action: 'memo', what: '이미 있음' }] },
+    'activity/a1': { app: 'lead', no: 1, action: 'noans', at: NOW - 5 * H, by: '정석진', summary: 'D-0001 하윤수 · 부재 1번째 → 10/14 다시 걸기 — 정석진' },
+    'activity/a0': { app: 'lead', no: 1, action: 'talk', at: NOW - 9 * 24 * H, by: '정석진', summary: 'D-0001 옛사람 · 통화됨 — 정석진' },   // 비우기 전 옛 번호
+    'activity/a2': { app: 'lead', no: 1, action: 'talk', at: NOW - H, by: '정석진', summary: 'D-0001 하윤수(하나산업) · 통화됨 → 💬 상담 중 · 10/15 10:30 다시 통화 · 미팅 약속 — 정석진' },
+    'activity/a3': { app: 'lead', no: 0, action: 'import', at: NOW - 6 * H, summary: '📣 광고 DB 2건 들어옴' },
+  });
+  const r = await backfillLeadCalls(db, { sinceMs: NOW - 24 * H });
+  assert.deepEqual(r, { filled: 1, lines: 2 });
+  const c = db.store.get('leads/D-0001').calls;
+  assert.deepEqual(c.map(x => x.what), ['부재 1번째 → 10/14 다시 걸기', '통화됨 → 💬 상담 중 · 10/15 10:30 다시 통화 · 미팅 약속']);
+  assert.equal(db.store.get('leads/D-0002').calls[0].what, '이미 있음');
+  assert.deepEqual(await backfillLeadCalls(db, { sinceMs: NOW - 24 * H }), { filled: 0, lines: 0 });   // 두 번 해도 그대로
+});

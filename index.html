@@ -87,7 +87,7 @@ main{max-width:1180px;margin:0 auto;padding:14px 16px 80px;display:grid;grid-tem
 .pfilter button.on{background:var(--navy);border-color:var(--navy);color:#fff}
 .ld-box{max-height:440px;overflow:auto;scroll-behavior:smooth}
 .ld-r .acts .btn.sm{font-size:11px}
-.ld-grid{display:grid;grid-template-columns:112px minmax(120px,1fr) 96px 78px 58px minmax(130px,1.2fr) 168px;align-items:center;gap:8px}
+.ld-grid{display:grid;grid-template-columns:112px minmax(120px,1fr) 96px 78px 58px minmax(130px,1.2fr) 180px;align-items:center;gap:8px}
 .ld-hd{position:sticky;top:0;z-index:1;background:#F1F5F9;font-size:11px;font-weight:700;color:var(--text3);padding:6px 12px;border-bottom:1px solid var(--border)}
 .ld-r{padding:8px 12px;border-bottom:1px solid var(--border);font-size:13px}
 .ld-r:last-child{border-bottom:0}
@@ -95,7 +95,14 @@ main{max-width:1180px;margin:0 auto;padding:14px 16px 80px;display:grid;grid-tem
 .ld-r.done{opacity:.6}
 .ld-r .fm{font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ld-r .acts{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
-.ld-r .acts .btn.sm{padding:2px 7px}
+.ld-r .acts .btn.sm{padding:2px 6px}
+.ld-r .nm.lh{cursor:pointer;text-decoration:underline dotted var(--text3);text-underline-offset:3px}
+.lhist{list-style:none;margin:0;padding:0;max-height:60vh;overflow:auto;border-left:2px solid var(--border);margin-left:6px}
+.lhist li{position:relative;padding:6px 0 8px 16px;font-size:13px;line-height:1.5}
+.lhist li::before{content:'';position:absolute;left:-6px;top:11px;width:10px;height:10px;border-radius:50%;background:var(--surface);border:2px solid var(--text3)}
+.lhist li.meeting::before{background:#16a34a;border-color:#16a34a}
+.lhist li.in::before{background:#DB2777;border-color:#DB2777}
+.lhist li .w{color:var(--text3);font-size:12px;font-variant-numeric:tabular-nums}
 .ld-r .cell{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media (max-width:900px){.ld-grid{grid-template-columns:1fr 1fr}.ld-hd{display:none}.ld-r .acts{grid-column:1/-1;justify-content:flex-start}}
 .ld-row .nm{font-weight:700}
@@ -498,12 +505,13 @@ function leadRow(p) {
   const btn = (a, t, title) => '<button class="btn sm" onclick="leadAct(\'' + L + '\',\'' + a + '\')"' + (title ? ' title="' + title + '"' : '') + '>' + t + '</button>';
   const acts = p.col === 'closed' ? btn('reopen', '다시 열기')
     : btn('noans', '부재', '안 받음 — 다음 영업일 재통화(3번째면 연락 안 됨)') + btn('talk', '통화됨', '상담 이어감 — 다시 걸 날 정하기') + btn('schedule', '약속', '통화 약속 날짜·시각')
+      + btn('meeting', '미팅', '미팅 잡힘 — 날짜·시각·장소(통화 이력의 끝)') + btn('memo', '📝', '통화 내용만 남기기')
       + btn('won', '전환', '고객 전환 — 진행 업무 할 일이 생김') + btn('lost', '거절', '관심 없음·잘못된 번호');
   const memoLast = (p.memo || '').trim().split('\n').pop();
   const why = p.col === 'new' ? p.reason.replace(/^🆕\s*/, '') : p.reason;
   return '<div class="ld-grid ld-r' + (p.alert ? ' alert' : '') + (p.col === 'closed' ? ' done' : '') + '" title="' + esc(p.label + (memoLast ? ' · 📝 ' + memoLast : '')) + '">'
     + '<span class="cell"><span class="pchip ' + esc(p.product) + '">' + esc(p.productLabel) + '</span><br><span class="fm">' + esc(p.formName || '—') + '</span></span>'
-    + '<span class="cell"><span class="nm">' + esc(p.name || '(이름 없음)') + '</span>' + (p.company ? ' <span style="color:var(--text2);font-size:12px">· ' + esc(p.company) + '</span>' : '')
+    + '<span class="cell"><span class="nm lh" onclick="leadHistoryOpen(\'' + L + '\')" title="📒 통화 이력 보기">' + esc(p.name || '(이름 없음)') + '</span>' + (p.calls.length ? ' <span style="font-size:11px;color:var(--text3)">📒' + p.calls.length + '</span>' : '') + (p.company ? ' <span style="color:var(--text2);font-size:12px">· ' + esc(p.company) + '</span>' : '')
       + (p.phone ? '<br><a class="ph" href="tel:' + esc(p.phone.replace(/-/g, '')) + '">☎ ' + esc(p.phone) + '</a>' : '') + '</span>'
     + '<span class="cell">' + esc(p.city || '—') + '</span>'
     + '<span class="cell">' + esc(p.bizType || '—') + '</span>'
@@ -518,6 +526,7 @@ function renderLeads() {
   const by = c => list.filter(p => p.col === c);
   const nw = by('new').sort((a, b) => a.receivedAt - b.receivedAt);
   const call = by('call').sort((a, b) => (b.alert - a.alert) || a.nextCallDate.localeCompare(b.nextCallDate) || (a.nextCallTime || '99').localeCompare(b.nextCallTime || '99'));
+  const meet = by('meet').sort((a, b) => (b.alert - a.alert) || (a.meetDate + a.meetTime).localeCompare(b.meetDate + b.meetTime));
   const later = by('later').sort((a, b) => (a.nextCallDate || '9999').localeCompare(b.nextCallDate || '9999'));
   const closed = by('closed').sort((a, b) => b.receivedAt - a.receivedAt).slice(0, 50);
   const ss = leadSync || {};
@@ -540,6 +549,7 @@ function renderLeads() {
         '<button class="' + (leadProduct === k ? 'on' : '') + '" onclick="leadFilter(\'' + k + '\')">' + esc(n) + ' ' + pcount(k) + '</button>').join('') + '</div>'
     + sec('🆕 새 DB', '아직 한 번도 안 건 곳 · 들어온 순 · 24시간 지나면 빨강', nw, 'c-lead')
     + sec('📞 오늘 걸 곳', '재통화·상담 약속이 오늘이거나 지남', call, 'c-call')
+    + (meet.length ? sec('🤝 미팅 예정', '미팅 잡힌 DB · 미팅 뒤 전환·거절을 남기면 끝 · 이름을 누르면 📒 통화 이력', meet, 'c-ing') : '')
     + sec('⏳ 재통화 앞날 · 상담 중', '날짜가 오면 「오늘 걸 곳」으로 · 부재 ' + LD.MAX_TRIES + '번이면 연락 안 됨', later, 'c-todo')
     + sec('끝난 DB', '고객 전환 · 거절 · 연락 안 됨 (최근 50)', closed, 'c-done', false);
 }
@@ -553,6 +563,12 @@ async function leadAct(L, action) {
     if (d === null) return; if (d.trim()) body.date = d.trim();
     if (body.date) { const tm = prompt('몇 시에? (예: 14:00, 오후 2시 · 비우면 시간 미정)', ''); if (tm === null) return; if (tm.trim()) body.time = tm.trim(); }
     const mm = prompt('통화 내용 메모 (선택)', ''); if (mm === null) return; if (mm.trim()) body.memo = mm.trim();
+  } else if (action === 'meeting') {
+    const d = prompt(who + '\n🤝 미팅 날짜 (예: 10/16, 내일, +3)', ''); if (d === null || !d.trim()) return; body.date = d.trim();
+    const tm = prompt('몇 시에? (예: 10:30, 오후 2시 · 비우면 시간 미정)', ''); if (tm === null) return; if (tm.trim()) body.time = tm.trim();
+    const mm = prompt('장소 · 내용 (선택 — 예: 본사 방문, 9001 견적 설명)', ''); if (mm === null) return; if (mm.trim()) body.memo = mm.trim();
+  } else if (action === 'memo') {
+    const mm = prompt(who + '\n📝 통화 내용 (통화 이력에 한 줄로 남습니다)', ''); if (mm === null || !mm.trim()) return; body.memo = mm.trim();
   } else if (action === 'lost') {
     const mm = prompt(who + '\n거절·무효 이유 (예: 관심 없음, 잘못된 번호)', ''); if (mm === null) return; if (mm.trim()) body.memo = mm.trim();
   } else if (action === 'won') {
@@ -562,6 +578,18 @@ async function leadAct(L, action) {
     const r = await api('POST', '/api/leads/' + L + '/act', body);
     toast(esc(L + ' ' + r.what) + (r.todo ? ' · 할 일 ' + esc(r.todo) + ' 생김' : ''));
   } catch (e) { fail(e); }
+}
+// 📒 통화 이력 — 들어옴부터 미팅까지 시간순 (규칙·글은 leads.js leadHistory와 같음)
+function leadHistoryOpen(L) {
+  const l = leads.find(x => LD.leadLabel(x.no) === L); if (!l) return;
+  const p = LD.presentLead(l, now());
+  const hist = LD.leadHistory(l);
+  openModal('<h3>📒 ' + esc(L + ' ' + (p.name || '') + (p.company ? ' · ' + p.company : '')) + ' <small style="font-weight:400;color:var(--text3)">통화 이력</small></h3>'
+    + '<div style="font-size:13px;color:var(--text2);margin:-4px 0 12px">' + esc([p.productLabel, p.phone, p.city, p.bizType, p.industry].filter(Boolean).join(' · ')) + '<br><b>지금: ' + esc(p.reason) + '</b></div>'
+    + '<ul class="lhist">' + hist.map(h => '<li class="' + esc(h.action) + '"><span class="w">' + esc(h.when) + (h.by ? ' · ' + esc(h.by) : '') + '</span><br>' + esc(h.what) + '</li>').join('')
+    + (hist.length === 1 ? '<li><span class="w">아직 통화 기록이 없습니다</span></li>' : '') + '</ul>'
+    + '<div class="foot"><button class="btn" onclick="closeModal();leadAct(\'' + esc(L) + '\',\'memo\')">📝 통화 내용 남기기</button>' + (p.col !== 'closed' ? '<button class="btn" onclick="closeModal();leadAct(\'' + esc(L) + '\',\'meeting\')">🤝 미팅 잡힘</button>' : '')
+    + '<span class="sp"></span><button class="btn" onclick="closeModal()">닫기</button></div>');
 }
 async function leadSyncNow() {
   try {
@@ -957,7 +985,7 @@ async function migApply() {
 }
 
 window.addEventListener('hashchange', () => { hashOpened = false; openFromHash(); });
-Object.assign(window, { leadAct, leadFilter, leadSyncNow, leadStatsOpen, leadUpload, fStatusChange, openIdea, signIn, signOutNow, pickMe, setMe, setView, act, quickAdd, quickHint, openEdit, saveEdit, delTodo, closeModal, weekMove, migPrev, migApply, autoPrev, autoRun, openTask, setDoneDay, submitDone, stPrev, stApply });
+Object.assign(window, { leadAct, leadHistoryOpen, leadFilter, leadSyncNow, leadStatsOpen, leadUpload, fStatusChange, openIdea, signIn, signOutNow, pickMe, setMe, setView, act, quickAdd, quickHint, openEdit, saveEdit, delTodo, closeModal, weekMove, migPrev, migApply, autoPrev, autoRun, openTask, setDoneDay, submitDone, stPrev, stApply });
 </script>
 </body>
 </html>
