@@ -1,0 +1,186 @@
+// ── ISO 소식 우편함 (iso_inbox) ── 2026-10-14
+// 업무창(Claude 채팅)에서 말한 ISO 인증·심사 소식을 Firestore `iso_inbox`에 한 줄 쓴다.
+// iso-one이 이 우편함을 읽어 자기 데이터에 반영하고(state: applying → applied / rejected), 결과는 cert_status로 CRM에 올라간다.
+// 업무창은 iso-one 데이터를 직접 고치지 않는다 — 우편함에 쓰기만, 결과는 읽기만.
+// 규격: iso-one 저장소 docs/ISO_INBOX_SPEC.md v1 (원본 SGGIT-PNG/ims-project) · 상태값은 SGCRM CERT_STATUS_SPEC.md와 같다.
+//
+// 할 일 연동: 「심사 끝남(auditDone 또는 certified) + 취득일 없음」 → 「[기업] 인증서 발급 확인」(dedupeKey iso:issue:{사업자번호})
+//             같은 기업에 취득일이 들어오면 그 할 일을 자동 완료(완료일 = 취득일, 앞날이면 오늘)
+
+import { RuleError, kstToday, parseDue, isDate, resolveCompany, noLabel } from './core.js';
+import { loadCompanies, createTodo, completeTodo } from './todos.js';
+
+export const ISO_STATUSES = ['certified', 'in_progress', 'preparing', 'failed', 'expired', 'dropped'];
+export const ISO_STATUS_LABEL = { certified: '인증 발급·유지', in_progress: '심사 진행', preparing: '준비 중', failed: '불합격', expired: '만료', dropped: '중단' };
+export const ATYPES = ['최초심사', '사후심사(1차)', '사후심사(2차)', '갱신심사'];
+export const ISO_STD = ['9001', '14001', '45001', '22000', '37001', '37301', '13485', '27001', '50001'];
+const INBOX = 'iso_inbox';
+const PENDING_HINT_MS = 30 * 60000;   // 30분 넘게 pending이면 안내
+
+// 규격 말 → 코드: 'ISO 9001' · '9001' · 'iso_9001' · '45001' → 'iso_45001'
+export function normCert(v) {
+  const m = String(v ?? '').toLowerCase().replace(/\s+/g, '').match(/(?:iso[_-]?)?(\d{4,5})/);
+  if (!m || !ISO_STD.includes(m[1])) throw new RuleError('ISO 규격을 알아볼 수 없습니다: 「' + v + '」 (예: 9001, 14001, 45001)');
+  return 'iso_' + m[1];
+}
+export function normCerts(v) {
+  const arr = Array.isArray(v) ? v : (String(v ?? '').match(/\d{4,5}/g) || [String(v ?? '')]);   // 「ISO 9001·14001」 → 숫자만
+  return [...new Set(arr.filter(x => String(x).trim()).map(normCert))].sort((a, b) => Number(a.slice(4)) - Number(b.slice(4)));
+}
+// 심사 유형 말 → 정해진 이름: '사후1차' · '1차 사후' · '사후심사 1차' → '사후심사(1차)'
+export function normAtype(v) {
+  const s = String(v ?? '').replace(/\s+/g, '');
+  if (!s) return '';
+  if (/최초|신규|인증심사$/.test(s)) return '최초심사';
+  if (/갱신|재인증/.test(s)) return '갱신심사';
+  if (/사후|정기/.test(s)) { if (/2/.test(s)) return '사후심사(2차)'; if (/1/.test(s)) return '사후심사(1차)'; }
+  if (ATYPES.includes(v)) return v;
+  throw new RuleError('심사 유형은 ' + ATYPES.join('·') + ' 중 하나입니다: 「' + v + '」');
+}
+// 하루 또는 여러 날: '2027-09-14' · '2027-09-14~2027-09-15' · '2027-09-14~15' · '9/14~9/15'
+export function normDayRange(v, nowMs) {
+  const s = String(v ?? '').trim();
+  if (!s) return '';
+  const [a, b] = s.split(/\s*[~～]\s*/);
+  const d1 = parseDue(a, nowMs);
+  if (!b) return d1;
+  let d2;
+  if (/^\d{1,2}$/.test(b)) d2 = d1.slice(0, 8) + b.padStart(2, '0');           // 「~15」 = 같은 달 15일
+  else if (/^\d{1,2}[/.]\d{1,2}$/.test(b) || /^\d{1,2}월/.test(b)) {           // 「~9/15」 = 시작한 해
+    const p = parseDue(b, nowMs); d2 = d1.slice(0, 4) + p.slice(4);
+  } else d2 = parseDue(b, nowMs);
+  if (!isDate(d2) || d2 < d1) throw new RuleError('날짜 범위가 올바르지 않습니다: 「' + s + '」');
+  return d1 === d2 ? d1 : d1 + '~' + d2;
+}
+function strictDay(v, nowMs, label) {
+  if (v === undefined || v === null || String(v).trim() === '') return '';
+  const d = parseDue(v, nowMs);
+  if (!isDate(d)) throw new RuleError(label + ' 날짜가 올바르지 않습니다: 「' + v + '」');
+  return d;
+}
+
+// 같은 내용이면 같은 문서 ID → 다시 보내도 쌓이지 않는다
+function hashStr(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); }
+const CONTENT_KEYS = ['bizno', 'certs', 'status', 'issuedAt', 'expiresAt', 'nextAction', 'atype', 's1Date', 's2Date', 'auditDone', 'note'];
+export function inboxId(doc, nowMs) {
+  const day = kstToday(nowMs).replace(/-/g, '');
+  const ref = doc.sourceRef ? String(doc.sourceRef).replace(/[^\w가-힣-]/g, '') : 'chat-' + hashStr(JSON.stringify(CONTENT_KEYS.map(k => doc[k] ?? null)));
+  return 'sg-todo__' + ref + '__' + day;
+}
+
+// 지금 이 기업의 ISO 규격(cert_status에서, 만료·중단 제외) — 「45001 추가」처럼 말할 때 바탕
+async function currentCerts(db, bizno) {
+  const rows = await db.query('cert_status', [['bizno', '==', bizno]], {});
+  return rows.map(r => r.data).filter(d => /^iso_/.test(d.cert || '') && !['expired', 'dropped', 'failed'].includes(d.status)).map(d => d.cert);
+}
+
+// 입력 → 우편함 문서 (모르는 항목은 빼고, 빈 문자열·0 넣지 않음)
+export async function buildInbox(ctx, input) {
+  const { db, actor, nowMs = Date.now() } = ctx;
+  if (!input.company) throw new RuleError('기업(company)을 넣어 주세요 — 이름이나 사업자번호');
+  const companies = ctx.companies || await loadCompanies(db);
+  const r = resolveCompany(input.company, companies);
+  if (r.candidates) throw new RuleError('기업이 여러 곳입니다. 하나를 골라 주세요: ' + input.company, { candidates: r.candidates.map(c => ({ bizno: c.id, name: c.name })) });
+  if (r.none) throw new RuleError('기업을 찾지 못했습니다: ' + input.company + ' (CRM에 먼저 기업 등록)');
+  const doc = { bizno: r.company.id, companyName: r.company.name };
+
+  if (input.certs !== undefined && String(input.certs).trim() !== '') doc.certs = normCerts(input.certs);
+  if (input.addCerts || input.removeCerts) {
+    const base = doc.certs || await currentCerts(db, doc.bizno);
+    if (!base.length && input.removeCerts) throw new RuleError('지금 규격을 몰라 뺄 수 없습니다. 전체 규격을 certs로 넣어 주세요');
+    const add = input.addCerts ? normCerts(input.addCerts) : [], rm = new Set(input.removeCerts ? normCerts(input.removeCerts) : []);
+    if (!base.length && add.length) throw new RuleError('지금 규격을 알 수 없습니다(연동 기록 없음). 「9001·14001·45001」처럼 전체 규격을 certs로 넣어 주세요');
+    doc.certs = normCerts(base.concat(add).filter(c => !rm.has(c)));
+  }
+  if (input.status) {
+    if (!ISO_STATUSES.includes(input.status)) throw new RuleError('status는 ' + ISO_STATUSES.join('·') + ' 중 하나입니다');
+    doc.status = input.status;
+  }
+  const iss = strictDay(input.issuedAt, nowMs, '취득일'); if (iss) doc.issuedAt = iss;
+  const exp = strictDay(input.expiresAt, nowMs, '만료일'); if (exp) doc.expiresAt = exp;
+  if (input.nextAction && String(input.nextAction).trim()) doc.nextAction = String(input.nextAction).trim().slice(0, 100);
+  const at = normAtype(input.atype); if (at) doc.atype = at;
+  const s1 = normDayRange(input.s1Date, nowMs); if (s1) doc.s1Date = s1;
+  const s2 = normDayRange(input.s2Date, nowMs); if (s2) doc.s2Date = s2;
+  if (input.auditDone === true || input.auditDone === 'true') doc.auditDone = true;
+  if (input.note && String(input.note).trim()) doc.note = String(input.note).trim().slice(0, 200);
+  const meaningful = ['certs', 'status', 'issuedAt', 'expiresAt', 'nextAction', 'atype', 's1Date', 's2Date', 'auditDone'].some(k => k in doc);
+  if (!meaningful) throw new RuleError('무엇이 바뀌었는지(발급·심사 일정·심사 끝남·불합격·규격 등) 하나 이상 넣어 주세요');
+  Object.assign(doc, { source: 'sg-todo', createdAt: nowMs, state: 'pending', by: actor.name });
+  if (input.ref) doc.sourceRef = String(input.ref).slice(0, 60);
+  return doc;
+}
+
+// 우편함에 쓰기 + 할 일 연동
+export async function sendIsoUpdate(ctx, input) {
+  const { db, actor, nowMs = Date.now() } = ctx;
+  const doc = await buildInbox(ctx, input);
+  const id = inboxId(doc, nowMs);
+  const written = await db.transaction(async (tx) => {
+    const old = await tx.get(INBOX + '/' + id);
+    // 같은 내용이 이미 반영(applied)됐으면 덮어쓰지 않는다 — 다시 pending으로 돌려 두 번 반영되지 않게
+    if (old && old.data.state === 'applied' && CONTENT_KEYS.every(k => JSON.stringify(old.data[k] ?? null) === JSON.stringify(doc[k] ?? null))) return { same: true, state: old.data.state, result: old.data.result || '' };
+    tx.set(INBOX + '/' + id, doc);
+    tx.create('activity/' + nowMs + '-' + Math.random().toString(36).slice(2, 10), {
+      at: nowMs, app: 'iso', ref: 'ISO', no: 0, action: 'iso_inbox', by: actor.name, via: actor.via || '', email: actor.email || '', bizno: doc.bizno, changes: {},
+      summary: '🏅 ISO 소식 → iso-one 우편함: ' + doc.companyName + ' · ' + describe(doc) + ' — ' + actor.name,
+    });
+    return { same: false };
+  });
+
+  // 할 일 연동
+  const todo = {};
+  const key = 'iso:issue:' + doc.bizno;
+  if ((doc.auditDone || doc.status === 'certified') && !doc.issuedAt) {
+    const r = await createTodo(ctx, { text: '[' + doc.companyName + '] 인증서 발급 확인', company: doc.bizno, category: 'iso', memo: describe(doc) },
+      { source: 'iso', sourceRef: 'issue:' + doc.bizno, autoCompany: false });
+    if (r.created) todo.made = r.label; else if (r.todo && r.todo.status !== 'done') todo.exists = r.label;
+  }
+  if (doc.issuedAt) {
+    const open = (await db.query('todos', [['dedupeKey', '==', key]], {})).find(d => !['done', 'cancel'].includes(d.data.status) && !d.data.deletedAt);
+    if (open) {
+      const today = kstToday(nowMs);
+      const day = doc.issuedAt <= today ? doc.issuedAt : today;
+      await completeTodo(ctx, open.data.no, '인증서 발급 ' + doc.issuedAt + ' (ISO 소식)', day);
+      // 다음 심사 때 새 「발급 확인」을 만들 수 있게 키를 비켜 둔다
+      await db.transaction(async tx => tx.update(open.path, { dedupeKey: key + ':' + doc.issuedAt }));
+      todo.done = noLabel(open.data.no);
+    }
+  }
+  return { id, doc, same: written.same, prevState: written.state, prevResult: written.result, todo };
+}
+
+// 사람이 읽는 한 줄 요약
+export function describe(d) {
+  const p = [];
+  if (d.certs) p.push(d.certs.map(c => c.replace('iso_', '')).join('·'));
+  if (d.atype) p.push(d.atype);
+  if (d.status) p.push(ISO_STATUS_LABEL[d.status] || d.status);
+  if (d.s1Date) p.push('1단계 ' + d.s1Date);
+  if (d.s2Date) p.push((d.atype && d.atype !== '최초심사' ? '심사일 ' : '2단계 ') + d.s2Date);
+  if (d.auditDone) p.push('심사 끝남');
+  if (d.issuedAt) p.push('취득 ' + d.issuedAt);
+  if (d.expiresAt) p.push('만료 ' + d.expiresAt);
+  if (d.nextAction) p.push('다음: ' + d.nextAction);
+  if (d.note) p.push('메모: ' + d.note);
+  return p.join(' · ');
+}
+
+// 최근 보낸 줄과 iso-one 반영 결과 (색인 없이 되도록 createdAt 순으로만 읽고 걸러 냄)
+export async function isoInboxStatus(db, { company = '', limit = 10 } = {}, nowMs = Date.now()) {
+  let bizno = '';
+  if (company) {
+    const r = resolveCompany(company, await loadCompanies(db));
+    if (!r.company) throw new RuleError(r.candidates ? '기업이 여러 곳입니다: ' + r.candidates.map(c => c.name + '(' + c.id + ')').join(', ') : '기업을 찾지 못했습니다: ' + company);
+    bizno = r.company.id;
+  }
+  const rows = (await db.query(INBOX, [], { orderBy: ['createdAt', 'desc'], limit: 200 }))
+    .map(d => Object.assign({ id: d.id }, d.data)).filter(d => d.source === 'sg-todo' && (!bizno || d.bizno === bizno)).slice(0, Math.max(1, Math.min(50, limit)));
+  return rows.map(d => {
+    const age = nowMs - (d.createdAt || nowMs);
+    let hint = '';
+    if (d.state === 'pending' && age > PENDING_HINT_MS) hint = 'iso-one을 열면 반영됩니다 — 그래도 그대로면 iso-one에 이 업체(사업자번호 ' + d.bizno + ') 등록 필요';
+    else if (d.state === 'rejected') hint = '반영 못 함 — 사유를 보고 iso-one에서 직접 고치거나 다시 보내 주세요';
+    return Object.assign(d, { hint });
+  });
+}

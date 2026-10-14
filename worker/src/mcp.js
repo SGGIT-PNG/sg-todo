@@ -7,6 +7,7 @@ import {
 } from './todos.js';
 import { RuleError, AUTHORS, STATUSES, STATUS_LABEL, KINDS, kstToday, resolveCompany, COL_LABEL, CATEGORIES, CAT_LABEL } from './core.js';
 import { AuthError } from './auth.js';
+import { sendIsoUpdate, isoInboxStatus, describe as isoDescribe, ISO_STATUSES, ATYPES } from './iso.js';
 import { listLeads, actLead, leadStats, syncMeta, resetLeads, leadLine, LEAD_ACTIONS, PRODUCTS, MAX_TRIES } from './leads.js';
 
 const PROTOCOLS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
@@ -22,7 +23,8 @@ const INSTRUCTIONS = 'SG솔루션 할 일(T-번호) 도구. 할 일을 넣거나
   + '제안해서 실제로 맡게 되면 todo_update status=ing(지금부터) 또는 status=wait+start(그 날부터)로 옮긴다. '
   + '📣 광고 DB(D-0012) = Meta 광고(ISO심사·벤처인증·기업인증·ESG인증)로 들어온 신청자. 5분마다 자동으로 들어온다. 「오늘 전화할 DB」 → lead_list. '
   + '전화 결과는 lead_update: 안 받음 → noans(다음 영업일 재통화 자동, 3번째 부재면 연락 안 됨), 통화됨·상담 이어감 → talk(다시 걸 날은 date·time), 통화 약속만 → schedule, 계약·진행하기로 → won(할 일이 하나 생김), 관심 없음·잘못된 번호 → lost(이유는 memo). '
-  + '광고별 성과는 lead_list view=stats.';
+  + '광고별 성과는 lead_list view=stats. '
+  + '🏅 ISO 인증·심사 소식(「태성 인증서 발급됐어 10/20」「사후1차 심사 내년 9/14~15로 확정」「심사 끝났어」「불합격」「45001 추가」) → iso_update로 iso-one 우편함에 보낸다(iso-one이 반영, 업무창은 iso-one 데이터를 직접 고치지 않음). 결과는 iso_update_status.';
 
 // ── 도구 정의 ──
 const AUTHOR = { type: 'string', enum: AUTHORS, description: '누가 하는지 — 정석진·김학미·공동 (모르면 사용자에게 먼저 물을 것)' };
@@ -159,6 +161,34 @@ export const TOOLS = [
       confirm: { type: 'string', description: '실행 확인 — 「초기화」' },
     } },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'iso_update', title: '🏅 ISO 소식 보내기(iso-one 우편함)',
+    description: 'ISO 인증·심사 소식을 iso-one 우편함(iso_inbox)에 한 줄 쓴다. iso-one이 읽어 반영하고 결과는 CRM에 올라간다. 말한 것만 넣고 모르는 항목은 뺀다(빈 값 금지). 예) 「인증서 발급됐어 10/20」 → status=certified, issuedAt / 「사후1차 심사 내년 9/14~15로 확정」 → status=in_progress, atype=사후심사(1차), s2Date=2027-09-14~2027-09-15 / 「사후1차 심사 끝났어」 → atype, auditDone=true (인증서 발급 전이면 「인증서 발급 확인」 할 일이 생김) / 「불합격」 → status=failed / 「45001 추가」 → addCerts=45001. 취득일이 들어오면 그 기업의 「인증서 발급 확인」 할 일이 저절로 완료된다. 기업 후보가 여럿이면 저장하지 않고 후보를 돌려준다.',
+    inputSchema: { type: 'object', required: ['company', 'author'], properties: {
+      author: AUTHOR,
+      company: { type: 'string', description: '기업 이름 또는 사업자번호' },
+      status: { type: 'string', enum: ISO_STATUSES, description: 'certified = 심사 끝남·인증 발급/유지(사후심사 통과 포함) · in_progress = 심사 진행·일정 확정 · preparing = 준비 · failed = 불합격 · expired = 만료 · dropped = 중단' },
+      atype: { type: 'string', enum: ATYPES, description: '이번 심사 유형' },
+      s1Date: { type: 'string', description: '1단계 심사일 — 2027-09-14 또는 여러 날 2027-09-14~2027-09-15 (사후·갱신은 보통 s2Date만)' },
+      s2Date: { type: 'string', description: '2단계(사후·갱신은 그 심사) 심사일 — 같은 형식' },
+      auditDone: { type: 'boolean', description: 'true = 그 심사가 끝남(인증서는 아직일 수 있음)' },
+      issuedAt: { type: 'string', description: '취득일(인증서 발급일) YYYY-MM-DD · 10/20' },
+      expiresAt: { type: 'string', description: '만료일 — 말했을 때만(iso-one이 취득일+3년-1일로 계산)' },
+      certs: { description: '규격 전체 목록(바꿀 때) — ["9001","14001"] 또는 「9001·14001·45001」', anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+      addCerts: { description: '규격 추가 — 「45001 추가」', anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+      removeCerts: { description: '규격 빼기', anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+      nextAction: { type: 'string', description: '다음 할 일 — 말했을 때만(iso-one이 계산)' },
+      note: { type: 'string', description: '짧은 메모(개인정보 금지)' },
+      ref: { type: 'string', description: '(선택) 관련 할 일 번호 T-0123' },
+    } },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'iso_update_status', title: '🏅 ISO 소식 반영 결과',
+    description: '최근 iso_update로 보낸 줄의 iso-one 반영 상태(pending 대기 · applying 처리 중 · applied 반영 · rejected 못 함)와 결과 문장. 오래 대기면 안내를 붙인다.',
+    inputSchema: { type: 'object', properties: { company: { type: 'string', description: '기업으로 거르기' }, limit: { type: 'integer', minimum: 1, maximum: 50, description: '기본 10' } } },
+    annotations: { readOnlyHint: true, openWorldHint: false },
   },
   {
     name: 'company_find', title: '기업 찾기',
@@ -313,6 +343,21 @@ export async function callTool(name, args, { db, email, nowMs, env = {}, fetchFn
     case 'lead_update': {
       const r = await actLead(ctx, rest.no, rest.action, rest);
       return r.label + ' ' + (r.lead.name || '') + ' — ' + r.what + ' → 지금: ' + r.lead.reason + (r.todo ? '\n할 일 ' + r.todo + ' 만들어짐(진행 업무)' : '');
+    }
+    case 'iso_update': {
+      const r = await sendIsoUpdate(ctx, rest);
+      if (r.same) return '이미 iso-one에 반영된 같은 소식입니다 — ' + r.doc.companyName + ' · ' + isoDescribe(r.doc) + (r.prevResult ? '\n결과: ' + r.prevResult : '');
+      const t = r.todo;
+      return '🏅 iso-one 우편함에 보냄 — ' + r.doc.companyName + ' · ' + isoDescribe(r.doc) + '\niso-one이 열려 있으면 곧 반영됩니다(결과는 iso_update_status).'
+        + (t.made ? '\n할 일 ' + t.made + ' 「인증서 발급 확인」 만들어짐' : t.exists ? '\n할 일 ' + t.exists + ' 「인증서 발급 확인」 이미 있음' : '')
+        + (t.done ? '\n할 일 ' + t.done + ' 「인증서 발급 확인」 완료 처리' : '');
+    }
+    case 'iso_update_status': {
+      const rows = await isoInboxStatus(db, { company: rest.company || '', limit: Number(rest.limit) || 10 }, nowMs);
+      if (!rows.length) return '보낸 ISO 소식이 없습니다';
+      const ST = { pending: '⏳ 대기', applying: '🔄 처리 중', applied: '✅ 반영', rejected: '⚠ 못 함' };
+      return rows.map(d => kstTime(d.createdAt) + ' ' + (ST[d.state] || d.state) + ' · ' + d.companyName + ' · ' + isoDescribe(d) + (d.by ? ' — ' + d.by : '')
+        + (d.result ? '\n   결과: ' + d.result : '') + (d.hint ? '\n   ' + d.hint : '')).join('\n');
     }
     case 'lead_reset': {
       if (String(rest.confirm || '').trim() !== '초기화') throw new RuleError('지우기 전 확인: confirm에 「초기화」를 넣어 주세요 (사용자에게 먼저 확인)');
