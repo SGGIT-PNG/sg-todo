@@ -252,3 +252,16 @@ test('📒 지난 기록 옮겨 채우기 — activity에서 시간순, 비우�
   assert.equal(db.store.get('leads/D-0002').calls[0].what, '이미 있음');
   assert.deepEqual(await backfillLeadCalls(db, { sinceMs: NOW - 24 * H }), { filled: 0, lines: 0 });   // 두 번 해도 그대로
 });
+
+test('📒 Meta 가져오기가 실패해도 지난 기록 옮기기는 한 번 한다', async () => {
+  const db = fakeDb({
+    'leads/D-0001': { no: 1, name: '하윤수', status: 'talk' },
+    'activity/a1': { app: 'lead', no: 1, action: 'talk', at: NOW - H, by: '정석진', summary: 'D-0001 하윤수 · 통화됨 → 💬 상담 중 — 정석진' },
+    [SYNC_PATH]: { startFrom: NOW - 24 * H },
+  });
+  const bad = async () => ({ ok: false, status: 400, json: async () => ({ error: { message: 'permission', code: 190 } }) });
+  const r = await syncMeta({ META_TOKEN: 't', META_PAGE_ID: 'p' }, db, { nowMs: NOW, fetchFn: bad });
+  assert.equal(r.ok, false);
+  assert.equal(db.store.get('leads/D-0001').calls[0].what, '통화됨 → 💬 상담 중');
+  assert.equal(db.store.get(SYNC_PATH).callsBackfilledAt, NOW);
+});
