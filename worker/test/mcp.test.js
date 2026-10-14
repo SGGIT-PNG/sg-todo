@@ -143,7 +143,7 @@ test('MCP 도구 — 추가·완료·수정·조회·바뀐 것·삭제·되살�
   const n = await handle(new Request(BASE + '/mcp', { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }), headers: { authorization: 'Bearer ' + access_token } }), ENV, { db, nowMs: NOW });
   assert.equal(n.status, 202);
   const { tools } = await rpc('tools/list', {});
-  assert.deepEqual(tools.map(t => t.name).sort(), ['company_find', 'lead_list', 'lead_reset', 'lead_sync', 'lead_update', 'todo_add', 'todo_changes', 'todo_complete', 'todo_delete', 'todo_get', 'todo_list', 'todo_restore', 'todo_update']);
+  assert.deepEqual(tools.map(t => t.name).sort(), ['company_find', 'iso_update', 'iso_update_status', 'lead_list', 'lead_reset', 'lead_sync', 'lead_update', 'todo_add', 'todo_changes', 'todo_complete', 'todo_delete', 'todo_get', 'todo_list', 'todo_restore', 'todo_update']);
   assert.equal(tools.find(t => t.name === 'todo_list').annotations.readOnlyHint, true);
 
   // 작성자 없으면 거절 (공용 계정)
