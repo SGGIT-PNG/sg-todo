@@ -185,6 +185,10 @@ html{color-scheme:dark}   /* 날짜 칸·선택 상자 같은 기본 부품도 �
 html,body{background:radial-gradient(1200px 700px at 12% -10%,#1A2C55 0%,transparent 60%),radial-gradient(900px 600px at 100% 0%,#2A1F4E 0%,transparent 55%),#0B1222;background-attachment:fixed;color:var(--text);font-size:13.5px}   /* 10/17 사장님: 전체 글씨 한 단계 작게 */
 header{background:rgba(10,16,32,.72);backdrop-filter:blur(14px);border-bottom:1px solid var(--border);box-shadow:none;padding:12px 24px}
 header h1{font-size:16px}
+/* 왼쪽 위 SG 로고(TV 통합 제어와 같은 모양) + 회사 이름 (2026-10-17) */
+header h1.brand{display:flex;align-items:center;gap:10px;font-size:17px;letter-spacing:-.2px}
+header .logo{width:34px;height:34px;border-radius:11px;background:linear-gradient(145deg,#5fa8ff,#3b5bdb);box-shadow:0 6px 16px rgba(59,91,219,.55),inset 0 1px 0 rgba(255,255,255,.35);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#fff;flex-shrink:0}
+@media (max-width:600px){header h1.brand{font-size:14px}header .logo{width:28px;height:28px;font-size:12px;border-radius:9px}}
 .tabs button{border-radius:999px;padding:7px 14px;color:var(--text3)}
 .tabs button:hover{background:rgba(255,255,255,.08);color:#fff}
 .tabs button.on{background:linear-gradient(145deg,#5FA8FF,#3B5BDB);color:#fff;box-shadow:0 6px 18px rgba(59,91,219,.45)}
@@ -302,7 +306,7 @@ table.mig td,table.mig th{border-bottom-color:var(--border)}
 </div></div>
 
 <header>
-  <h1>✅ SG 할 일</h1>
+  <h1 class="brand"><span class="logo">SG</span>(주)에스지솔루션 업무 현황 시스템</h1>
   <nav class="tabs" id="tabs"></nav>
   <div class="me">
     <span>나:</span><button onclick="pickMe()" id="me-btn">선택</button>
