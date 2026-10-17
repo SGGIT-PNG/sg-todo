@@ -256,6 +256,13 @@ main{max-width:1760px;padding:20px 24px 80px;gap:22px;grid-template-columns:minm
 .board{display:grid;gap:18px;align-items:start;grid-template-columns:minmax(0,1fr)}
 @media (min-width:900px){.board{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr)}.board .bcol3{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}}
 .board .sec>h2 small{display:none}   /* 보드 칸은 좁아서 설명은 숨김(제목이 두 줄로 깨지지 않게) */
+/* 칸 접고 펼치기 (2026-10-17 사장님) — 제목줄을 누르면 접힘/펼침, 기기마다 기억 */
+.sec>h2{cursor:pointer;user-select:none}
+.sec>h2::after{content:'▾';font-size:14px;color:var(--text3);margin-left:6px;flex-shrink:0}
+.sec>h2:not(:has(.cnt))::after{margin-left:auto}
+.sec.fold>h2::after{content:'▸'}
+.sec.fold>:not(h2){display:none!important}
+.sec.fold>h2{border-bottom:0}
 @media (min-width:1280px){.board{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,.9fr)}.board .bcol3{grid-column:auto;display:block}}
 .board .bcol>.sec:last-child{margin-bottom:0}
 /* 보드 칸이 좁으면 버튼은 줄 오른쪽 위에 떠서(PC) 글자를 가리지 않게 */
@@ -1142,6 +1149,32 @@ async function migApply() {
 }
 
 window.addEventListener('hashchange', () => { hashOpened = false; openFromHash(); });
+// ── 칸 접고 펼치기 (2026-10-17 사장님: 진행 업무 등) — 제목줄을 누르면 접힘. 칸 이름으로 이 기기에 기억(localStorage).
+// 화면이 실시간으로 다시 그려져도 접힌 칸은 그대로 두려고, 새로 그려질 때마다 다시 적용한다
+const FOLD_LS = 'sgtodo_folded';
+let foldSet = new Set((() => { try { return JSON.parse(localStorage.getItem(FOLD_LS) || '[]'); } catch (e) { return []; } })());
+function secKey(h2) {
+  const c = h2.cloneNode(true); c.querySelectorAll('small,.cnt').forEach(x => x.remove());
+  return c.textContent.replace(/\(\d+\)/g, '').trim();
+}
+function applyFolds() {
+  document.querySelectorAll('.sec>h2').forEach(h => {
+    const on = foldSet.has(secKey(h)), sec = h.parentElement;
+    if (sec.classList.contains('fold') !== on) sec.classList.toggle('fold', on);
+    h.title = on ? '눌러서 펼치기' : '눌러서 접기';
+  });
+}
+document.addEventListener('click', e => {
+  const h = e.target.closest('.sec>h2'); if (!h || e.target.closest('button,a,input,select,label')) return;
+  const k = secKey(h); if (!k) return;
+  if (foldSet.has(k)) foldSet.delete(k); else foldSet.add(k);
+  try { localStorage.setItem(FOLD_LS, JSON.stringify([...foldSet])); } catch (err) {}
+  applyFolds();
+  if (!foldSet.has(k) && h.parentElement.querySelector('#ldroll')) fitLeadRoll();   // 접혀 있던 흐르는 목록은 펼칠 때 높이를 다시 잰다
+});
+new MutationObserver(applyFolds).observe(document.body, { childList: true, subtree: true });
+applyFolds();
+
 Object.assign(window, { leadAct, leadHistoryOpen, leadFilter, leadSyncNow, leadStatsOpen, leadUpload, fStatusChange, openIdea, signIn, signOutNow, pickMe, setMe, setView, act, quickAdd, quickHint, openEdit, saveEdit, delTodo, closeModal, weekMove, migPrev, migApply, autoPrev, autoRun, openTask, setDoneDay, submitDone, stPrev, stApply });
 </script>
 </body>
