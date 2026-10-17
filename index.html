@@ -267,6 +267,12 @@ main{max-width:1760px;padding:20px 24px 80px;gap:22px;grid-template-columns:minm
 .ldmini .lm .tx b{font-weight:700}
 .ldmini .lm .why{font-size:11.5px;color:var(--text3);white-space:nowrap}
 .ldmini .lm.alert .why{color:#FF8F85}
+.ldroll{overflow:hidden;position:relative}
+.ldroll .ldtrack{animation:ldRoll linear infinite}
+.ldroll.still .ldtrack,.ldroll:hover .ldtrack{animation-play-state:paused}
+.ldroll.still .ldtrack{animation:none}
+@keyframes ldRoll{from{transform:translateY(0)}to{transform:translateY(-50%)}}
+.ldmini .lm .ph{color:#74C0FC;font-weight:400;font-size:12px}
 .ldmini .more{display:block;text-align:center;padding:10px;font-size:13px;color:#A5D8FF;cursor:pointer}
 /* 옆: 방금 바뀐 것 */
 aside .sec>h2{background:linear-gradient(90deg,rgba(95,168,255,.2),rgba(95,168,255,.03));border-left:6px solid #5FA8FF;color:#A5D8FF}
@@ -532,15 +538,25 @@ function groupedRows(list) {
     return '<div class="subhd">' + esc(name) + '<span>' + arr.length + '</span></div>' + arr.map(t => rowHtml(t, 0, true)).join('');
   }).join('');
 }
-// 📣 광고 DB 요약(오늘 보드 오른쪽) — 새 DB·오늘 걸 곳 위에서 8건, 누르면 광고 DB 탭
+// 📣 전화할 DB 흐르는 목록(2026-10-17 사장님: 업무 탭에서 빼서 광고 DB 탭 위로 · 최근 30일 들어온 것만)
+//   새 DB·오늘 걸 곳·결과 안 남긴 지난 미팅 — 칸을 넘으면 천천히 위로 흐름(마우스를 올리면 멈춤), 줄을 누르면 📒 통화 이력
+const LEAD_ROLL_DAYS = 30;
 function leadMini(lp) {
-  const xs = lp.filter(p => p.col === 'new' || p.col === 'call' || (p.col === 'meet' && p.alert))
+  const since = now() - LEAD_ROLL_DAYS * 86400000;
+  const xs = lp.filter(p => (p.col === 'new' || p.col === 'call' || (p.col === 'meet' && p.alert)) && (p.receivedAt || 0) >= since)
     .sort((a, b) => (b.alert - a.alert) || (a.col === 'new' ? 0 : 1) - (b.col === 'new' ? 0 : 1) || a.receivedAt - b.receivedAt);
-  const rows = xs.slice(0, 8).map(p => '<div class="lm' + (p.alert ? ' alert' : '') + '" onclick="setView(\'leads\')"><span class="pchip ' + esc(p.product) + '">' + esc(p.productLabel) + '</span>'
-    + '<span class="tx"><b>' + esc(p.name || '(이름 없음)') + '</b>' + (p.company ? ' · ' + esc(p.company) : '') + '</span><span class="why">' + esc(p.reason.replace(/^🆕\s*/, '')) + '</span></div>').join('');
-  return '<div class="sec c-lead ldmini"><h2>📣 광고 DB 전화<span class="cnt">' + xs.length + '</span></h2>'
-    + (rows || '<div class="empty">지금 전화할 DB가 없습니다</div>')
-    + (xs.length > 8 ? '<a class="more" onclick="setView(\'leads\')">전체 ' + xs.length + '건 보기 →</a>' : '') + '</div>';
+  const rows = xs.map(p => '<div class="lm' + (p.alert ? ' alert' : '') + '" onclick="leadHistoryOpen(\'' + esc(p.label) + '\')"><span class="pchip ' + esc(p.product) + '">' + esc(p.productLabel) + '</span>'
+    + '<span class="tx"><b>' + esc(p.name || '(이름 없음)') + '</b>' + (p.company ? ' · ' + esc(p.company) : '') + (p.phone ? ' <span class="ph">☎ ' + esc(p.phone) + '</span>' : '') + '</span><span class="why">' + esc(p.reason.replace(/^🆕\s*/, '')) + '</span></div>').join('');
+  return '<div class="sec c-lead ldmini"><h2>📣 전화할 DB <small>최근 ' + LEAD_ROLL_DAYS + '일 들어온 것 · 새 DB·오늘 걸 곳 · 누르면 📒 통화 이력</small><span class="cnt">' + xs.length + '</span></h2>'
+    + (rows ? '<div class="ldroll" id="ldroll"><div class="ldtrack" style="animation-duration:' + Math.max(12, xs.length * 3) + 's">' + rows + rows + '</div></div>'
+      : '<div class="empty">최근 ' + LEAD_ROLL_DAYS + '일 안에 들어온 전화할 DB가 없습니다</div>') + '</div>';
+}
+// 흐르는 칸 높이: 다 들어가면 멈춰 있고(두 번째 복사본은 가림), 넘치면 최대 6줄 높이에서 흐름
+function fitLeadRoll() {
+  const el = document.getElementById('ldroll'); if (!el) return;
+  const tr = el.firstElementChild, half = tr.scrollHeight / 2, max = 6 * 44;
+  el.style.height = Math.min(half, max) + 'px';
+  el.classList.toggle('still', half <= max + 1);
 }
 function section(title, sub, list, open = true, cls = '', grouped = false) {
   const inner = !list.length ? '<div class="empty">없습니다</div>' : grouped ? groupedRows(list) : list.map(rowHtml).join('');
@@ -587,7 +603,7 @@ function render() {
         + section('🔵 예정 업무', '시작일이 아직 · 그날이 되면 위로 올라감', g.todo, true, 'c-todo', true)
         + section('💡 제안 업무', '업체가 맡기기 전, 우리가 먼저 제안할 일 · 맡게 되면 「지금 시작」', g.idea, true, 'c-idea', true)
       + '</div>'
-      + '<div class="bcol bcol3">' + leadMini(lp)
+      + '<div class="bcol bcol3">'
         + section('✅ 완료 업무', '최근 7일 · 전체는 「완료·휴지통」', recent, recent.length <= 8, 'c-done')
       + '</div></div>';
   } else if (view === 'company') {
@@ -628,6 +644,7 @@ function render() {
     el.innerHTML = section('✅ 완료 업무', '완료한 날 최근 순 · 100건', done) + section('🗑️ 휴지통', core.TRASH_DAYS + '일 뒤 완전 삭제', trash);
   } else if (view === 'leads') {
     el.innerHTML = renderLeads();
+    fitLeadRoll();
   } else if (view === 'admin') {
     el.innerHTML = renderAdmin();
   }
@@ -686,6 +703,7 @@ function renderLeads() {
       + '<input type="file" id="ld-file" accept=".csv,.tsv,.xlsx,.xls" multiple class="hidden" onchange="leadUpload(this.files)"></div>'
     + '<div class="pfilter">' + [['', '전체']].concat(LD.PRODUCTS).filter(([k]) => k !== 'etc' || pcount('etc')).map(([k, n]) =>
         '<button class="' + (leadProduct === k ? 'on' : '') + '" onclick="leadFilter(\'' + k + '\')">' + esc(n) + ' ' + pcount(k) + '</button>').join('') + '</div>'
+    + leadMini(list)
     + sec('🆕 새 DB', '아직 한 번도 안 건 곳 · 들어온 순 · 24시간 지나면 빨강', nw, 'c-lead')
     + sec('📞 오늘 걸 곳', '재통화·상담 약속이 오늘이거나 지남', call, 'c-call')
     + (meet.length ? sec('🤝 미팅 예정', '미팅 잡힌 DB · 미팅 뒤 전환·거절을 남기면 끝 · 이름을 누르면 📒 통화 이력', meet, 'c-ing') : '')
