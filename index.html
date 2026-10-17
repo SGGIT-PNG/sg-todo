@@ -359,7 +359,7 @@ const db = getFirestore(app);
 
 const CATS = core.CAT_LABEL;   // 업무 분야(중분류) — core.js CATEGORIES 한 곳
 const SRC = { manual:'손 입력', chat:'채팅', voice:'음성', cert:'인증 갱신', iso:'ISO', annual:'연간신고', lead:'잠재고객', card:'업체카드', secretary:'비서', repeat:'반복' };
-const VIEWS = [['today','할 일'],['leads','📣 광고 DB'],['company','기업별'],['week','주간'],['done','완료·휴지통'],['admin','관리']];
+const VIEWS = [['today','업무'],['leads','📣 광고 DB'],['company','기업별'],['week','주간'],['done','완료·휴지통'],['admin','관리']];
 const LS = { me:'sgtodo_me', view:'sgtodo_view' };
 const ls = { get:(k,d)=>{try{return localStorage.getItem(k)??d;}catch{return d;}}, set:(k,v)=>{try{localStorage.setItem(k,v);}catch{}} };
 
