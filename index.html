@@ -182,9 +182,9 @@ table.mig td,table.mig th{border-bottom:1px solid var(--border);padding:5px 6px;
   --radius:18px; --shadow:0 14px 34px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.06);
 }
 html{color-scheme:dark}   /* 날짜 칸·선택 상자 같은 기본 부품도 어둡게 */
-html,body{background:radial-gradient(1200px 700px at 12% -10%,#1A2C55 0%,transparent 60%),radial-gradient(900px 600px at 100% 0%,#2A1F4E 0%,transparent 55%),#0B1222;background-attachment:fixed;color:var(--text);font-size:14.5px}
+html,body{background:radial-gradient(1200px 700px at 12% -10%,#1A2C55 0%,transparent 60%),radial-gradient(900px 600px at 100% 0%,#2A1F4E 0%,transparent 55%),#0B1222;background-attachment:fixed;color:var(--text);font-size:13.5px}   /* 10/17 사장님: 전체 글씨 한 단계 작게 */
 header{background:rgba(10,16,32,.72);backdrop-filter:blur(14px);border-bottom:1px solid var(--border);box-shadow:none;padding:12px 24px}
-header h1{font-size:18px}
+header h1{font-size:16px}
 .tabs button{border-radius:999px;padding:7px 14px;color:var(--text3)}
 .tabs button:hover{background:rgba(255,255,255,.08);color:#fff}
 .tabs button.on{background:linear-gradient(145deg,#5FA8FF,#3B5BDB);color:#fff;box-shadow:0 6px 18px rgba(59,91,219,.45)}
@@ -198,19 +198,19 @@ main{max-width:1760px;padding:20px 24px 80px;gap:22px;grid-template-columns:minm
 .btn.danger{background:rgba(255,107,94,.12);border-color:rgba(255,107,94,.4);color:#FF8F85}
 /* 빠른 입력 */
 .quick{padding:14px;margin-bottom:16px}
-.quick input{background:rgba(255,255,255,.06);border:1px solid var(--border2);border-radius:12px;padding:12px 14px;font-size:15.5px;color:var(--text)}
+.quick input{background:rgba(255,255,255,.06);border:1px solid var(--border2);border-radius:12px;padding:10px 13px;font-size:14px;color:var(--text)}
 .quick input::placeholder{color:var(--text4)}
 .quick input:focus{outline:0;border-color:#74C0FC;box-shadow:0 0 0 3px rgba(116,192,252,.2)}
 .quick .hint{color:var(--text3)}
 /* 숫자 칸(TV KPI처럼): 이름 위 · 큰 숫자 아래 · 색 점 */
 .counts{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:12px;margin-bottom:18px}
 .counts div{padding:12px 16px 12px;display:flex;flex-direction:column-reverse;gap:2px;min-width:0}
-.counts b{font-size:38px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
-.counts span{font-size:13px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.counts b{font-size:30px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
+.counts span{font-size:12px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .counts div.lead{background:linear-gradient(145deg,rgba(219,39,119,.30),rgba(255,255,255,.04));border-color:rgba(249,168,212,.45)}
 /* 칸(상자): 제목 = 색 띠 + 연한 색 바탕 */
 .sec{margin-bottom:18px;overflow:hidden}
-.sec>h2{font-size:15px;padding:12px 16px;border-bottom:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--text);border-left:6px solid var(--text4)}
+.sec>h2{font-size:14px;padding:10px 14px;border-bottom:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--text);border-left:6px solid var(--text4)}
 .sec>h2 small{color:var(--text3)}
 .sec>h2 .cnt{background:rgba(255,255,255,.12);border-radius:999px;padding:1px 10px;font-weight:800;color:#fff;font-size:13px}
 .sec.c-call>h2{border-left-color:var(--call);background:linear-gradient(90deg,rgba(59,201,219,.22),rgba(59,201,219,.04));color:#99E9F2}
@@ -222,16 +222,16 @@ main{max-width:1760px;padding:20px 24px 80px;gap:22px;grid-template-columns:minm
 .sec details>summary{color:var(--text2);padding:12px 16px}
 .sec .empty{color:var(--text4)}
 /* 업무 분야 작은 제목 */
-.subhd{background:transparent;padding:10px 16px 2px;border-bottom:0;color:var(--text3);font-size:12px;letter-spacing:.3px}
+.subhd{background:transparent;padding:8px 14px 2px;border-bottom:0;color:var(--text3);font-size:11.5px;letter-spacing:.3px}
 .subhd span{color:var(--text4)}
 /* 한 줄 */
-.row{padding:11px 16px;border-bottom:1px solid var(--border);transition:background .12s;position:relative}
+.row{padding:9px 14px;border-bottom:1px solid var(--border);transition:background .12s;position:relative}
 .row:hover{background:rgba(255,255,255,.05)}
 .row.alert{border-left:4px solid var(--danger);padding-left:12px;background:linear-gradient(90deg,rgba(255,107,94,.10),transparent 60%)}
 .row.urgent{background:linear-gradient(90deg,rgba(255,59,48,.18),transparent 70%)}
-.row .t{font-size:15.5px;font-weight:600;color:var(--text)}
+.row .t{font-size:14px;font-weight:600;color:var(--text)}
 .row.done .t{color:var(--text4)}
-.row .meta{margin-top:5px;gap:7px;color:var(--text3)}
+.row .meta{margin-top:4px;gap:6px;font-size:11.5px;color:var(--text3)}
 .row .chk{background:transparent;border:2px solid var(--border2);border-radius:7px}
 .row .chk:hover{border-color:var(--ok);background:rgba(81,207,102,.12)}
 .row.done .chk{background:var(--ok);border-color:var(--ok);color:#0B1222}
@@ -257,11 +257,11 @@ main{max-width:1760px;padding:20px 24px 80px;gap:22px;grid-template-columns:minm
 /* 보드 칸이 좁으면 버튼은 줄 오른쪽 위에 떠서(PC) 글자를 가리지 않게 */
 @media (hover:hover) and (min-width:900px){.board .row .acts{position:absolute;right:10px;top:8px;background:rgba(14,22,42,.92);border-radius:10px;padding:3px;box-shadow:0 6px 18px rgba(0,0,0,.4);opacity:0;pointer-events:none}.board .row:hover .acts,.board .row:focus-within .acts{opacity:1;pointer-events:auto}}
 /* 📣 광고 DB 요약 카드(보드 오른쪽) */
-.ldmini .lm{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer}
+.ldmini .lm{display:flex;align-items:center;gap:10px;padding:8px 14px;font-size:13px;border-bottom:1px solid var(--border);cursor:pointer}
 .ldmini .lm:hover{background:rgba(255,255,255,.05)}
 .ldmini .lm .tx{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ldmini .lm .tx b{font-weight:700}
-.ldmini .lm .why{font-size:12px;color:var(--text3);white-space:nowrap}
+.ldmini .lm .why{font-size:11.5px;color:var(--text3);white-space:nowrap}
 .ldmini .lm.alert .why{color:#FF8F85}
 .ldmini .more{display:block;text-align:center;padding:10px;font-size:13px;color:#A5D8FF;cursor:pointer}
 /* 옆: 방금 바뀐 것 */
@@ -289,7 +289,7 @@ table.mig td,table.mig th{border-bottom-color:var(--border)}
 #toast{background:#1F2D4F;border:1px solid var(--border2)}
 .warnbox{background:rgba(255,212,59,.10)!important;border-color:rgba(255,212,59,.35)!important}
 .warnbox .empty{color:#FFE066!important}
-@media (max-width:600px){.sec>h2 small{display:none}.sec>h2{white-space:nowrap}main{padding:14px 12px 80px}.counts{grid-template-columns:repeat(3,minmax(0,1fr))}.counts b{font-size:28px}}
+@media (max-width:600px){.sec>h2 small{display:none}.sec>h2{white-space:nowrap}main{padding:14px 12px 80px}.counts{grid-template-columns:repeat(3,minmax(0,1fr))}.counts b{font-size:24px}}
 </style>
 </head>
 <body>
