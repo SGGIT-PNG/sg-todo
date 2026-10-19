@@ -221,7 +221,7 @@ export function presentLead(l, nowMs = Date.now()) {
   return {
     label: leadLabel(l.no), no: l.no, product: l.product, productLabel: PRODUCT_LABEL[l.product] || '기타',
     name: l.name || '', phone: l.phone || '', company: l.company || '', email: l.email || '', status: l.status, statusLabel: LEAD_STATUS[l.status] || '',
-    tries: l.tries || 0, nextCallDate: l.nextCallDate || '', nextCallTime: l.nextCallTime || '', receivedAt: l.receivedAt || 0,
+    tries: l.tries || 0, nextCallDate: l.nextCallDate || '', nextCallTime: l.nextCallTime || '', receivedAt: l.receivedAt || 0, createdAt: l.createdAt || 0,
     city: leadPick(l.extras, 'city'), bizType: leadPick(l.extras, 'bizType'), industry: leadPick(l.extras, 'industry'),
     meetDate: l.meetDate || '', meetTime: l.meetTime || '', calls: Array.isArray(l.calls) ? l.calls : [],
     extras: extrasPairs(l), memo: l.memo || '', assignee: l.assignee || '', formName: l.formName || '', col: st.col, alert: st.alert, reason: st.reason,
