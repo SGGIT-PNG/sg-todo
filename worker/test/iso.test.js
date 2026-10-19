@@ -161,6 +161,13 @@ test('업체 정보 보내기 — 우편함 한 줄·같은 내용 한 건·반�
   assert.match(out, /🏢 iso-one 우편함에 보냄 — \(주\)영심 · 업체 정보 2칸\(대표자, 팩스\) · 없으면 새로 등록/);
   const st = await callTool('iso_update_status', { company: '영심' }, deps);
   assert.match(st, /업체 정보 2칸/);
+  // iso-one이 반영 뒤 적어 준 빈 칸이 보인다
+  const row = inbox(db).find(d => d.kind === 'profile' && d.profile.fax);
+  Object.assign(db.store.get('iso_inbox/' + row.id), { state: 'applied', result: '반영 · 채움: 대표자, 팩스 · 빈 필수 칸: IAF 코드',
+    missing: [{ key: 'iaf', label: 'IAF 코드' }], missingOptional: [{ key: 'tel', label: '전화' }, { key: 's1Date', label: '1단계 심사일' }] });
+  const st2 = await callTool('iso_update_status', { company: '영심' }, deps);
+  assert.match(st2, /빈 필수 칸: IAF 코드\(iaf\)/);
+  assert.match(st2, /빈 권장 칸: 전화\(tel\), 1단계 심사일\(s1Date\)/);
   const acts = [...db.store.entries()].filter(([p]) => p.startsWith('activity/')).map(([, d]) => d.summary);
   assert.ok(acts.some(s => /🏢 업체 정보 → iso-one 우편함: \(주\)영심/.test(s)));
 });
