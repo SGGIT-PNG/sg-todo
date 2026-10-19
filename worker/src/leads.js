@@ -360,7 +360,8 @@ export async function leadStats(db, { days = 30 } = {}, nowMs = Date.now()) {
 }
 
 // ── Meta에서 가져오기 ── 5분마다(예약 작업) · 웹 「지금 가져오기」 · 채팅 lead_sync
-//   env.META_TOKEN(비밀값, 페이지 액세스 토큰) · env.META_PAGE_ID(페이지 번호, 여럿이면 쉼표) · env.META_API_VERSION(기본 v26.0)
+//   env.META_TOKEN(비밀값) — 페이지 토큰이든, 만료 없는 「시스템 사용자」 토큰이든 된다(10/19: 사람 계정 토큰이 자꾸 끊겨서).
+//     시스템 사용자·사용자 토큰이면 매번 페이지 토큰으로 바꿔 쓴다(pageToken) · env.META_PAGE_ID(페이지 번호, 여럿이면 쉼표) · env.META_API_VERSION(기본 v26.0)
 //   지난번 받은 가장 늦은 신청 시각 10분 전부터 다시 물어 빠지는 것이 없게 하고, 중복은 importLeads가 거른다
 export async function syncMeta(env, db, { nowMs = Date.now(), fetchFn = fetch, actor = { name: '자동', via: 'meta' }, full = false } = {}) {
   const token = String(env.META_TOKEN || '').trim();
@@ -377,25 +378,30 @@ export async function syncMeta(env, db, { nowMs = Date.now(), fetchFn = fetch, a
   }
   // startFrom = 「이 날 이후 신청만」(lead_reset으로 정함) — 처음·전체 다시 받기도 그 앞으로는 가지 않는다
   const sinceMs = full || !prev.lastTime ? Math.max(nowMs - BACKFILL_DAYS * 86400000, prev.startFrom || 0) : Math.max(prev.lastTime - 10 * 60000, prev.startFrom || 0);
-  const graph = async (url) => {
-    const r = await fetchFn(url, { headers: { authorization: 'Bearer ' + token } });
+  const graph = async (url, tok = token) => {
+    const r = await fetchFn(url, { headers: { authorization: 'Bearer ' + tok } });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || j.error) {
       const m = (j.error && (j.error.error_user_msg || j.error.message)) || ('HTTP ' + r.status);
-      throw new Error('Meta: ' + m + (j.error && j.error.code === 190 ? ' — 토큰이 만료됐거나 잘못됐습니다' : ''));
+      const code = j.error && j.error.code;
+      throw new Error('Meta: ' + m + (code === 190 || code === 10 || code === 200 ? ' — 토큰이 만료됐거나 권한이 풀렸습니다(META_TOKEN 다시 넣기)' : ''));
     }
     return j;
   };
   const items = []; const forms = []; let calls = 0;
   try {
     for (const page of pages) {
-      const fj = await graph(base + encodeURIComponent(page) + '/leadgen_forms?fields=id,name,status&limit=100'); calls++;
+      // 시스템 사용자 토큰 → 이 페이지의 페이지 토큰으로 바꾼다. 이미 페이지 토큰이면 실패하거나 같은 값 → 원래 토큰 그대로
+      let pt = token;
+      try { const pj = await graph(base + encodeURIComponent(page) + '?fields=access_token'); if (pj.access_token) pt = pj.access_token; } catch (e) { /* 페이지 토큰이면 여기로 */ }
+      calls++;
+      const fj = await graph(base + encodeURIComponent(page) + '/leadgen_forms?fields=id,name,status&limit=100', pt); calls++;
       for (const f of fj.data || []) {
         forms.push({ id: f.id, name: f.name || '', status: f.status || '', product: classifyProduct(f.name) });
         const filtering = encodeURIComponent(JSON.stringify([{ field: 'time_created', operator: 'GREATER_THAN', value: Math.floor(sinceMs / 1000) }]));
         let url = base + f.id + '/leads?fields=id,created_time,field_data,ad_name,campaign_name,form_id&limit=100&filtering=' + filtering;
         for (let page2 = 0; url && page2 < 5 && calls < 30; page2++) {   // 무료 요금제 외부 호출 50번 안에서
-          const lj = await graph(url); calls++;
+          const lj = await graph(url, pt); calls++;
           (lj.data || []).forEach(ld => items.push(fromMetaLead(ld, f)));
           url = lj.paging && lj.paging.next || '';
         }

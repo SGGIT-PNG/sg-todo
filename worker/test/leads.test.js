@@ -135,8 +135,9 @@ test('Meta에서 가져오기 — 토큰 없으면 건너뜀 · 양식별로 가
   assert.equal(r.ok, true); assert.equal(r.created.length, 2);
   assert.deepEqual(r.forms, ['ISO 심사 무료상담 → ISO심사', 'ESG 인증 문의 → ESG인증']);
   assert.equal(db.store.get('leads/D-0001').product, 'iso');
-  assert.match(calls[1], /filtering=/);
-  const since1 = JSON.parse(decodeURIComponent(calls[1].split('filtering=')[1]))[0].value;
+  assert.match(calls[0], /P1\?fields=access_token/);   // 페이지 토큰 바꾸기를 먼저 물어봄(이 시험은 이미 페이지 토큰 → 실패 → 그대로)
+  assert.match(calls[2], /filtering=/);
+  const since1 = JSON.parse(decodeURIComponent(calls[2].split('filtering=')[1]))[0].value;
   assert.equal(since1, Math.floor((NOW - 90 * 86400000) / 1000));   // 처음엔 90일
   calls.length = 0;
   const c0 = db.commits;
@@ -146,7 +147,7 @@ test('Meta에서 가져오기 — 토큰 없으면 건너뜀 · 양식별로 가
   db.transaction = realTx;
   assert.equal(r.fetched, 1); assert.equal(r.created.length, 0); assert.equal(r.skipped, 1);   // 10분 겹쳐 물어 다시 온 리드는 안 넣음
   assert.equal(leadReads, 0); assert.equal(db.commits, c0 + 1);    // 새 리드가 없으면 leads를 읽지 않고 lead_sync 한 번만 씀
-  const since2 = JSON.parse(decodeURIComponent(calls[1].split('filtering=')[1]))[0].value;
+  const since2 = JSON.parse(decodeURIComponent(calls[2].split('filtering=')[1]))[0].value;
   assert.equal(since2, Math.floor((NOW - 1 * H - 10 * 60000) / 1000));   // 가장 늦은 신청 10분 전부터
   // 토큰 만료 → 기록만 남기고 실패
   const bad = async () => Response.json({ error: { message: 'Session has expired', code: 190 } }, { status: 400 });
@@ -154,6 +155,23 @@ test('Meta에서 가져오기 — 토큰 없으면 건너뜀 · 양식별로 가
   assert.equal(r.ok, false); assert.match(r.error, /만료/);
   assert.match(db.store.get(SYNC_PATH).lastError, /만료/);
   assert.equal(db.store.get(SYNC_PATH).lastTime, NOW - 1 * H);   // 이어받을 시각은 그대로
+});
+
+test('Meta — 시스템 사용자 토큰이면 페이지 토큰으로 바꿔 쓰고, 권한 풀림(code 10)도 알아듣게', async () => {
+  const db = db0(); const auths = [];
+  const fetchFn = async (url, opt) => {
+    auths.push([url.split('?')[0].split('/').slice(-2).join('/'), opt.headers.authorization]);
+    if (url.includes('?fields=access_token')) return Response.json({ access_token: 'PAGETOK', id: 'P1' });
+    if (opt.headers.authorization !== 'Bearer PAGETOK') return Response.json({ error: { message: 'need page token', code: 200 } }, { status: 403 });
+    if (url.includes('/leadgen_forms')) return Response.json({ data: [{ id: 'F1', name: 'ISO 심사' }] });
+    return Response.json({ data: [metaLead('s1', '01055556666', 1)] });
+  };
+  const r = await syncMeta({ META_TOKEN: 'SYSTEM', META_PAGE_ID: 'P1' }, db, { nowMs: NOW, fetchFn });
+  assert.equal(r.ok, true); assert.equal(r.created.length, 1);
+  assert.equal(auths[0][1], 'Bearer SYSTEM'); assert.equal(auths[1][1], 'Bearer PAGETOK'); assert.equal(auths[2][1], 'Bearer PAGETOK');
+  const bad = async () => Response.json({ error: { message: 'Any of the pages_read_engagement … permission(s) must be granted', code: 10 } }, { status: 403 });
+  const r2 = await syncMeta({ META_TOKEN: 'SYSTEM', META_PAGE_ID: 'P1' }, db, { nowMs: NOW + 60000, fetchFn: bad });
+  assert.equal(r2.ok, false); assert.match(r2.error, /권한이 풀렸습니다/);
 });
 
 test('Claude 도구 — lead_list · lead_update · stats · lead_sync', async () => {
