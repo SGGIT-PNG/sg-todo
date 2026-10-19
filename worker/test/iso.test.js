@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fakeDb } from './fakeDb.js';
-import { normCerts, normAtype, normDayRange, buildInbox, sendIsoUpdate, isoInboxStatus, inboxId } from '../src/iso.js';
+import { normCerts, normAtype, normDayRange, buildInbox, sendIsoUpdate, isoInboxStatus, inboxId, normProfile, buildProfileInbox, sendIsoProfile } from '../src/iso.js';
 import { callTool } from '../src/mcp.js';
 
 const NOW = Date.parse('2026-10-14T01:00:00Z');   // 한국 2026-10-14 10:00
@@ -104,4 +104,63 @@ test('반영 결과 조회 — 오래 대기·못 함 안내 · Claude 도구', 
   assert.match(out, /iso-one 우편함에 보냄 — 하이퍼다인 · 불합격 · 메모: 2단계 부적합 2건/);
   const acts = [...db.store.entries()].filter(([p]) => p.startsWith('activity/')).map(([, d]) => d.summary);
   assert.ok(acts.some(s => /ISO 소식 → iso-one 우편함: 하이퍼다인 · 불합격/.test(s)));
+});
+
+// ── 🏢 업체 정보(profile) — iso-one ISO_INBOX_SPEC v2 §6 ──
+const YS = {
+  name: '주식회사 영심', ceo: '서봉진', addr: '전북특별자치도 전주시 덕진구 기린대로 945-6, 2층 211호', founding_date: '2026-09-08',
+  ind: '식품업', scope: '천연 및 혼합 조제 조미료 제조', fax: '0504-032-2778', mgr: '서봉진', safety_mgr: '서봉진',
+  emp_total: '3명', iaf: '03', iaf_sub: '1083', mgno_q: '0614', mgno_e: '0614', mgno_s: '0614', ncr_action_date: '2026-10-15',
+};
+const dbYS = () => db0({ 'companies/216-86-03926': { name: '(주)영심', active: 'Y' } });
+
+test('업체 정보 정리 — 칸 검사·숫자·날짜·목록', () => {
+  const p = normProfile(YS, NOW);
+  assert.equal(p.emp_total, '3'); assert.equal(p.founding_date, '2026-09-08'); assert.equal(p.ind, '식품업'); assert.equal(p.mgno_q, '0614');
+  assert.deepEqual(normProfile({ ceo: '  홍길동 ', addr: '', mgr: null }, NOW), { ceo: '홍길동' });
+  assert.throws(() => normProfile({ ceo: 'a', foo: 1 }, NOW), /모르는 칸 「foo」/);
+  assert.throws(() => normProfile({ ind: '우주업' }, NOW), /업종 값은/);
+  assert.throws(() => normProfile({ founding_date: '2026-13-45' }, NOW), /설립일 날짜/);
+  assert.throws(() => normProfile({ emp_total: '미정' }, NOW), /총 인원 숫자/);
+  assert.throws(() => normProfile({ shift: '주간' }, NOW), /근무형태 값은/);
+  assert.throws(() => normProfile({}, NOW), /하나 이상/);
+  assert.throws(() => normProfile('대표 서봉진', NOW), /묶음/);
+});
+
+test('업체 정보 문서 — 영심 3규격 최초, 없으면 새로 등록', async () => {
+  const db = dbYS();
+  const ctx = { db, actor, nowMs: NOW };
+  const d = await buildProfileInbox(ctx, { company: '영심', certs: '9001·14001·45001', atype: '최초', s1Date: '2026-10-01', s2Date: '2026-10-08', profile: YS, assignee: 'SGCEO@sgsolutionss.com' });
+  assert.equal(d.bizno, '216-86-03926'); assert.equal(d.kind, 'profile'); assert.deepEqual(d.certs, ['iso_9001', 'iso_14001', 'iso_45001']);
+  assert.equal(d.atype, '최초심사'); assert.equal(d.s2Date, '2026-10-08'); assert.equal(d.createIfMissing, true); assert.equal(d.assignee, 'sgceo@sgsolutionss.com');
+  assert.equal(d.profile.emp_total, '3'); assert.equal(d.source, 'sg-todo'); assert.equal(d.state, 'pending');
+  assert.equal((await buildProfileInbox(ctx, { company: '영심', profile: { ceo: '서봉진' }, createIfMissing: false })).createIfMissing, false);
+  await assert.rejects(() => buildProfileInbox(ctx, { company: '없는회사', profile: YS }), /찾지 못했습니다/);
+  await assert.rejects(() => buildProfileInbox(ctx, { company: '영심', profile: YS, assignee: '서봉진' }), /이메일/);
+});
+
+test('업체 정보 보내기 — 우편함 한 줄·같은 내용 한 건·반영 뒤 다시 안 씀·주말 경고·Claude 도구', async () => {
+  const db = dbYS();
+  const ctx = { db, actor, nowMs: NOW };
+  let r = await sendIsoProfile(ctx, { company: '216-86-03926', certs: '9001,14001,45001', atype: '최초심사', s1Date: '2026-10-01', s2Date: '2026-10-08', profile: YS });
+  assert.equal(r.same, false); assert.deepEqual(r.warnings, []);
+  assert.match(r.id, /^sg-todo__profile-2168603926-\w+__20261014$/);
+  await sendIsoProfile(ctx, { company: '216-86-03926', certs: '9001,14001,45001', atype: '최초심사', s1Date: '2026-10-01', s2Date: '2026-10-08', profile: YS });
+  assert.equal(inbox(db).length, 1);
+  db.store.get('iso_inbox/' + r.id).state = 'applied';
+  db.store.get('iso_inbox/' + r.id).result = '반영 · 업체 새로 등록';
+  r = await sendIsoProfile(ctx, { company: '216-86-03926', certs: '9001,14001,45001', atype: '최초심사', s1Date: '2026-10-01', s2Date: '2026-10-08', profile: YS });
+  assert.equal(r.same, true); assert.equal(db.store.get('iso_inbox/' + r.id).state, 'applied');
+  // 10/10(토)~11(일) 포함 → 경고
+  r = await sendIsoProfile(ctx, { company: '영심', s2Date: '2026-10-09~11', profile: { ceo: '서봉진' } });
+  assert.match(r.warnings[0], /2단계 심사일에 주말 포함: 2026-10-10, 2026-10-11/);
+  // Claude 도구
+  const deps = { db, email: 'x', nowMs: NOW };
+  await assert.rejects(() => callTool('iso_profile', { company: '영심', profile: YS }, deps), /author/);
+  const out = await callTool('iso_profile', { company: '영심', profile: { ceo: '서봉진', fax: '0504-032-2778' }, author: '정석진', ref: 'drive:004_업체카드_(주)영심' }, deps);
+  assert.match(out, /🏢 iso-one 우편함에 보냄 — \(주\)영심 · 업체 정보 2칸\(대표자, 팩스\) · 없으면 새로 등록/);
+  const st = await callTool('iso_update_status', { company: '영심' }, deps);
+  assert.match(st, /업체 정보 2칸/);
+  const acts = [...db.store.entries()].filter(([p]) => p.startsWith('activity/')).map(([, d]) => d.summary);
+  assert.ok(acts.some(s => /🏢 업체 정보 → iso-one 우편함: \(주\)영심/.test(s)));
 });

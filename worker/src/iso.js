@@ -7,7 +7,7 @@
 // 할 일 연동: 「심사 끝남(auditDone 또는 certified) + 취득일 없음」 → 「[기업] 인증서 발급 확인」(dedupeKey iso:issue:{사업자번호})
 //             같은 기업에 취득일이 들어오면 그 할 일을 자동 완료(완료일 = 취득일, 앞날이면 오늘)
 
-import { RuleError, kstToday, parseDue, isDate, resolveCompany, noLabel } from './core.js';
+import { RuleError, kstToday, parseDue, isDate, addDays, resolveCompany, noLabel } from './core.js';
 import { loadCompanies, createTodo, completeTodo } from './todos.js';
 
 export const ISO_STATUSES = ['certified', 'in_progress', 'preparing', 'failed', 'expired', 'dropped'];
@@ -183,4 +183,118 @@ export async function isoInboxStatus(db, { company = '', limit = 10 } = {}, nowM
     else if (d.state === 'rejected') hint = '반영 못 함 — 사유를 보고 iso-one에서 직접 고치거나 다시 보내 주세요';
     return Object.assign(d, { hint });
   });
+}
+
+// ── 🏢 업체 정보(profile) — iso-one docs/ISO_INBOX_SPEC.md v2 §6 ── 2026-10-19
+// ISO one 에이전트(Claude)가 구글 드라이브 업체카드·사업자등록증에서 뽑은 회사 정보를 우편함에 쓴다.
+// iso-one은 빈 칸만 채우고(손으로 넣은 값은 안 덮음), 다르면 result에 「차이」로 남긴다. createIfMissing이면 업체를 새로 등록.
+export const IND_LIST = ['제조업', '건설업', '식품업', '서비스업', '정보통신업', '도소매업', '운수·물류업', '화학·금속제조업', '환경·폐기물처리업', '의료', '교육', '금융'];
+// 칸 이름 → 한글 이름 (iso-one INBOX_CO_FIELDS + INBOX_AUDIT_FIELDS와 같은 목록)
+export const PROFILE_FIELDS = {
+  name: '업체명', ceo: '대표자', addr: '주소', tel: '전화', ind: '업종', scope: '인증범위', founding_date: '설립일', en: '영문 업체명',
+  item: '종목', ind_detail: '업태 세부', fax: '팩스', homepage: '홈페이지', addr_zip: '우편번호', addr_en: '영문 주소',
+  mgr: '담당자', mgr_dept: '담당자 부서', mgr_title: '담당자 직책', mgr_hp: '담당자 연락처', mgr_email: '담당자 이메일',
+  safety_mgr: '안전보건 담당자', tax_mgr: '세금계산서 담당자', tax_email: '세금계산서 이메일',
+  emp_total: '총 인원', emp_exec: '임원', emp_reg: '상근직', emp_day: '일용직', emp_out: '외주', dept_names: '부서명',
+  shift: '근무형태', customer: '주요 고객', prod_facility: '생산설비', process_order: '공정순서(제품1)',
+  process_order2: '공정순서(제품2)', process_order3: '공정순서(제품3)', scope_en: '영문 인증범위',
+  iaf: 'IAF 코드', iaf_sub: 'IAF 세부코드', design: '설계 유무',
+  mgno_q: '관리번호(품질)', mgno_e: '관리번호(환경)', mgno_s: '관리번호(안전)', ncr_action_date: '부적합 시정조치 일자',
+};
+const P_DATE = new Set(['founding_date', 'ncr_action_date']);
+const P_NUM = new Set(['emp_total', 'emp_exec', 'emp_reg', 'emp_day', 'emp_out']);
+const P_ENUM = { ind: IND_LIST, shift: ['1교대', '2교대', '3교대', '기타'], design: ['있다', '없다'] };
+
+// profile 정리 — 모르는 칸·틀린 값은 저장하지 않고 바로 알려 준다(우편함엔 깨끗한 값만)
+export function normProfile(p, nowMs) {
+  if (!p || typeof p !== 'object' || Array.isArray(p)) throw new RuleError('profile은 {칸: 값} 묶음이어야 합니다');
+  const out = {}, bad = [];
+  for (const [k, raw] of Object.entries(p)) {
+    if (!(k in PROFILE_FIELDS)) { bad.push('모르는 칸 「' + k + '」'); continue; }
+    if (raw === undefined || raw === null) continue;
+    if (typeof raw !== 'string' && typeof raw !== 'number') { bad.push(PROFILE_FIELDS[k] + ' 값은 글자나 숫자'); continue; }
+    const v = String(raw).trim();
+    if (!v) continue;
+    if (P_DATE.has(k)) {
+      let d = '';
+      try { d = parseDue(v, nowMs); } catch (e) { d = ''; }
+      if (!isDate(d)) { bad.push(PROFILE_FIELDS[k] + ' 날짜 「' + v + '」'); continue; }
+      out[k] = d;
+    } else if (P_NUM.has(k)) {
+      const n = v.replace(/[^0-9]/g, '');
+      if (!n) { bad.push(PROFILE_FIELDS[k] + ' 숫자 「' + v + '」'); continue; }
+      out[k] = String(Number(n));
+    } else if (P_ENUM[k]) {
+      if (!P_ENUM[k].includes(v)) { bad.push(PROFILE_FIELDS[k] + ' 값은 ' + P_ENUM[k].join('·') + ' 중 하나 — 「' + v + '」'); continue; }
+      out[k] = v;
+    } else out[k] = v.slice(0, 500);
+  }
+  if (bad.length) throw new RuleError('업체 정보를 고쳐 주세요: ' + bad.join(' / '));
+  if (!Object.keys(out).length) throw new RuleError('보낼 업체 정보가 없습니다(profile 칸을 하나 이상)');
+  return out;
+}
+const isWeekend = (ds) => { const w = new Date(ds + 'T00:00:00Z').getUTCDay(); return w === 0 || w === 6; };
+function weekendDays(range) {
+  if (!range) return [];
+  const [a, b = a] = range.split('~'), out = [];
+  for (let d = a, n = 0; d <= b && n < 31; d = addDays(d, 1), n++) if (isWeekend(d)) out.push(d);
+  return out;
+}
+
+const PROFILE_KEYS = ['bizno', 'certs', 'atype', 's1Date', 's2Date', 'profile', 'createIfMissing', 'assignee'];
+export async function buildProfileInbox(ctx, input) {
+  const { db, actor, nowMs = Date.now() } = ctx;
+  if (!input.company) throw new RuleError('기업(company)을 넣어 주세요 — 이름이나 사업자번호');
+  const r = resolveCompany(input.company, ctx.companies || await loadCompanies(db));
+  if (r.candidates) throw new RuleError('기업이 여러 곳입니다. 하나를 골라 주세요: ' + input.company, { candidates: r.candidates.map(c => ({ bizno: c.id, name: c.name })) });
+  if (r.none) throw new RuleError('기업을 찾지 못했습니다: ' + input.company + ' (CRM에 먼저 기업 등록)');
+  const doc = { bizno: r.company.id, companyName: r.company.name, kind: 'profile' };
+  if (input.certs !== undefined && String(input.certs).trim() !== '') doc.certs = normCerts(input.certs);
+  const at = normAtype(input.atype); if (at) doc.atype = at;
+  const s1 = normDayRange(input.s1Date, nowMs); if (s1) doc.s1Date = s1;
+  const s2 = normDayRange(input.s2Date, nowMs); if (s2) doc.s2Date = s2;
+  doc.profile = normProfile(input.profile, nowMs);
+  doc.createIfMissing = input.createIfMissing !== false && input.createIfMissing !== 'false';
+  if (input.assignee && String(input.assignee).trim()) {
+    const em = String(input.assignee).trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) throw new RuleError('assignee는 iso-one 로그인 이메일입니다: 「' + input.assignee + '」');
+    doc.assignee = em;
+  }
+  if (input.note && String(input.note).trim()) doc.note = String(input.note).trim().slice(0, 200);
+  Object.assign(doc, { source: 'sg-todo', createdAt: nowMs, state: 'pending', by: actor.name });
+  if (input.ref) doc.sourceRef = String(input.ref).slice(0, 60);
+  return doc;
+}
+export function profileInboxId(doc, nowMs) {
+  const day = kstToday(nowMs).replace(/-/g, '');
+  return 'sg-todo__profile-' + doc.bizno.replace(/\D/g, '') + '-' + hashStr(JSON.stringify(PROFILE_KEYS.map(k => doc[k] ?? null))) + '__' + day;
+}
+// 우편함에 업체 정보 쓰기. 반환 {id, doc, same, warnings}
+export async function sendIsoProfile(ctx, input) {
+  const { db, actor, nowMs = Date.now() } = ctx;
+  const doc = await buildProfileInbox(ctx, input);
+  const id = profileInboxId(doc, nowMs);
+  const warnings = [];
+  for (const [label, r] of [['1단계', doc.s1Date], ['2단계', doc.s2Date]]) {
+    const w = weekendDays(r); if (w.length) warnings.push(label + ' 심사일에 주말 포함: ' + w.join(', ') + ' — ISO 심사는 영업일에만');
+  }
+  const written = await db.transaction(async (tx) => {
+    const old = await tx.get(INBOX + '/' + id);
+    if (old && old.data.state === 'applied') return { same: true, result: old.data.result || '' };   // 같은 내용이 이미 반영됨
+    tx.set(INBOX + '/' + id, doc);
+    tx.create('activity/' + nowMs + '-' + Math.random().toString(36).slice(2, 10), {
+      at: nowMs, app: 'iso', ref: 'ISO', no: 0, action: 'iso_inbox', by: actor.name, via: actor.via || '', email: actor.email || '', bizno: doc.bizno, changes: {},
+      summary: '🏢 업체 정보 → iso-one 우편함: ' + doc.companyName + ' · ' + describeProfile(doc) + ' — ' + actor.name,
+    });
+    return { same: false };
+  });
+  return { id, doc, same: written.same, prevResult: written.result, warnings };
+}
+export function describeProfile(d) {
+  const p = [];
+  const head = describe(d); if (head) p.push(head);
+  const keys = Object.keys(d.profile || {});
+  p.push('업체 정보 ' + keys.length + '칸(' + keys.map(k => PROFILE_FIELDS[k]).join(', ') + ')');
+  if (d.createIfMissing) p.push('없으면 새로 등록' + (d.assignee ? '(' + d.assignee + ')' : ''));
+  return p.join(' · ');
 }

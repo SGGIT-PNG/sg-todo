@@ -7,7 +7,7 @@ import {
 } from './todos.js';
 import { RuleError, AUTHORS, STATUSES, STATUS_LABEL, KINDS, kstToday, resolveCompany, COL_LABEL, CATEGORIES, CAT_LABEL } from './core.js';
 import { AuthError } from './auth.js';
-import { sendIsoUpdate, isoInboxStatus, describe as isoDescribe, ISO_STATUSES, ATYPES } from './iso.js';
+import { sendIsoUpdate, isoInboxStatus, describe as isoDescribe, ISO_STATUSES, ATYPES, sendIsoProfile, describeProfile, PROFILE_FIELDS, IND_LIST } from './iso.js';
 import { listLeads, actLead, leadStats, syncMeta, resetLeads, leadLine, leadHistory, historyLine, presentLead, getLead, LEAD_ACTIONS, PRODUCTS, MAX_TRIES } from './leads.js';
 
 const PROTOCOLS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
@@ -24,7 +24,8 @@ const INSTRUCTIONS = 'SG솔루션 할 일(T-번호) 도구. 할 일을 넣거나
   + '📣 광고 DB(D-0012) = Meta 광고(ISO심사·벤처인증·기업인증·ESG인증)로 들어온 신청자. 5분마다 자동으로 들어온다. 「오늘 전화할 DB」 → lead_list. '
   + '전화 결과는 lead_update: 안 받음 → noans(다음 영업일 재통화 자동, 3번째 부재면 연락 안 됨), 통화됨·상담 이어감 → talk(다시 걸 날은 date·time), 통화 약속만 → schedule, 미팅 잡힘 → meeting(date·time, 장소는 memo), 계약·진행하기로 → won(할 일이 하나 생김), 관심 없음·잘못된 번호 → lost(이유는 memo). 통화 내용은 memo에 꼭 남긴다(📒 통화 이력에 한 줄씩 쌓임 — 들어와서 미팅 잡힐 때까지). 「D-0022 이력」「그 업체 통화한 내용」 → lead_history. '
   + '광고별 성과는 lead_list view=stats. '
-  + '🏅 ISO 인증·심사 소식(「태성 인증서 발급됐어 10/20」「사후1차 심사 내년 9/14~15로 확정」「심사 끝났어」「불합격」「45001 추가」) → iso_update로 iso-one 우편함에 보낸다(iso-one이 반영, 업무창은 iso-one 데이터를 직접 고치지 않음). 결과는 iso_update_status.';
+  + '🏅 ISO 인증·심사 소식(「태성 인증서 발급됐어 10/20」「사후1차 심사 내년 9/14~15로 확정」「심사 끝났어」「불합격」「45001 추가」) → iso_update로 iso-one 우편함에 보낸다(iso-one이 반영, 업무창은 iso-one 데이터를 직접 고치지 않음). 결과는 iso_update_status. '
+  + '🏢 「○○ iso-one 작성해줘」처럼 업체 정보(대표자·주소·업종·인원·담당자·관리번호 등)로 iso-one을 채울 때 → iso_profile(iso-one이 빈 칸만 채우고, 없는 업체는 새로 등록). 확인 안 된 값(⚠확인 필요)·대외 문서에 넣으면 안 되는 내부 메모(매각·지분·개인 차입 등)는 넣지 않는다.';
 
 // ── 도구 정의 ──
 const AUTHOR = { type: 'string', enum: AUTHORS, description: '누가 하는지 — 정석진·김학미·공동 (모르면 사용자에게 먼저 물을 것)' };
@@ -190,6 +191,25 @@ export const TOOLS = [
       nextAction: { type: 'string', description: '다음 할 일 — 말했을 때만(iso-one이 계산)' },
       note: { type: 'string', description: '짧은 메모(개인정보 금지)' },
       ref: { type: 'string', description: '(선택) 관련 할 일 번호 T-0123' },
+    } },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'iso_profile', title: '🏢 업체 정보 보내기(iso-one 자동 작성)',
+    description: '업체 정보를 iso-one 우편함(iso_inbox)에 보내 iso-one 「정보입력」을 채운다(iso-one ISO_INBOX_SPEC v2 §6). iso-one은 빈 칸만 채우고 이미 있는 값은 덮어쓰지 않으며(다르면 결과에 「차이」로 남김), iso-one에 없는 업체는 새로 등록한다(createIfMissing 기본 true). 자료(구글 드라이브 업체카드·사업자등록증·4대보험 명부)와 사용자가 말한 것만 넣고, 모르는 칸은 뺀다. ⚠확인 필요 값과 대외 문서 금지 내부 메모는 넣지 않는다(모든 칸이 심사보고서·매뉴얼에 출력될 수 있음). 심사일은 영업일만. 결과는 iso_update_status.',
+    inputSchema: { type: 'object', required: ['company', 'author', 'profile'], properties: {
+      author: AUTHOR,
+      company: { type: 'string', description: '기업 이름 또는 사업자번호(CRM에 있어야 함)' },
+      certs: { description: '진행 규격 — 「9001·14001·45001」 (새 등록 때 없으면 3규격으로 등록되고 확인 필요 표시)', anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+      atype: { type: 'string', enum: ATYPES, description: '이번 심사 유형(새 등록 때 첫 심사 유형)' },
+      s1Date: { type: 'string', description: '1단계 심사일 — 2026-10-01 (여러 날은 2026-10-01~02)' },
+      s2Date: { type: 'string', description: '2단계 심사일 — 같은 형식' },
+      profile: { type: 'object', description: '업체 정보 칸(아는 것만). 업종 ind는 ' + IND_LIST.join('·') + ' 중 하나. 날짜는 YYYY-MM-DD, 인원은 숫자, 근무형태 shift는 1교대·2교대·3교대·기타, 설계 design은 있다·없다, 관리번호는 접두어 없이(0614)',
+        additionalProperties: false, properties: Object.fromEntries(Object.entries(PROFILE_FIELDS).map(([k, label]) => [k, { type: 'string', description: label }])) },
+      createIfMissing: { type: 'boolean', description: 'iso-one에 없으면 새로 등록(기본 true)' },
+      assignee: { type: 'string', description: '(선택) 새 등록을 맡을 iso-one 로그인 이메일 — 그 계정의 iso-one만 등록' },
+      note: { type: 'string', description: '짧은 메모(개인정보 금지)' },
+      ref: { type: 'string', description: '(선택) 자료 출처 — 예: drive:004_업체카드_(주)영심' },
     } },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
@@ -377,11 +397,18 @@ export async function callTool(name, args, { db, email, nowMs, env = {}, fetchFn
         + (t.made ? '\n할 일 ' + t.made + ' 「인증서 발급 확인」 만들어짐' : t.exists ? '\n할 일 ' + t.exists + ' 「인증서 발급 확인」 이미 있음' : '')
         + (t.done ? '\n할 일 ' + t.done + ' 「인증서 발급 확인」 완료 처리' : '');
     }
+    case 'iso_profile': {
+      const r = await sendIsoProfile(ctx, rest);
+      if (r.same) return '이미 iso-one에 반영된 같은 업체 정보입니다 — ' + r.doc.companyName + (r.prevResult ? '\n결과: ' + r.prevResult : '');
+      return '🏢 iso-one 우편함에 보냄 — ' + r.doc.companyName + ' · ' + describeProfile(r.doc)
+        + '\niso-one이 열리면 반영됩니다(빈 칸만 채움 · 결과는 iso_update_status).'
+        + (r.warnings.length ? '\n⚠ ' + r.warnings.join('\n⚠ ') : '');
+    }
     case 'iso_update_status': {
       const rows = await isoInboxStatus(db, { company: rest.company || '', limit: Number(rest.limit) || 10 }, nowMs);
       if (!rows.length) return '보낸 ISO 소식이 없습니다';
       const ST = { pending: '⏳ 대기', applying: '🔄 처리 중', applied: '✅ 반영', rejected: '⚠ 못 함' };
-      return rows.map(d => kstTime(d.createdAt) + ' ' + (ST[d.state] || d.state) + ' · ' + d.companyName + ' · ' + isoDescribe(d) + (d.by ? ' — ' + d.by : '')
+      return rows.map(d => kstTime(d.createdAt) + ' ' + (ST[d.state] || d.state) + ' · ' + d.companyName + ' · ' + (d.kind === 'profile' ? describeProfile(d) : isoDescribe(d)) + (d.by ? ' — ' + d.by : '')
         + (d.result ? '\n   결과: ' + d.result : '') + (d.hint ? '\n   ' + d.hint : '')).join('\n');
     }
     case 'lead_reset': {
