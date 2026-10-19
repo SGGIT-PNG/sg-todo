@@ -550,8 +550,10 @@ function groupedRows(list) {
 const LEAD_ROLL_DAYS = 30;
 function leadMini(lp) {
   const since = now() - LEAD_ROLL_DAYS * 86400000;
-  const xs = lp.filter(p => (p.col === 'new' || p.col === 'call' || (p.col === 'meet' && p.alert)) && (p.receivedAt || 0) >= since)
-    .sort((a, b) => (b.alert - a.alert) || (a.col === 'new' ? 0 : 1) - (b.col === 'new' ? 0 : 1) || a.receivedAt - b.receivedAt);
+  // 최근 들어온 것부터(2026-10-19 — TV 통합 제어와 같은 순서). 들어온 시각 = 신청 시각과 우리에게 들어온 시각 중 늦은 쪽(Meta 끊겼다 늦게 들어온 것도 위로)
+  const at = p => Math.max(p.receivedAt || 0, p.createdAt || 0);
+  const xs = lp.filter(p => (p.col === 'new' || p.col === 'call' || (p.col === 'meet' && p.alert)) && at(p) >= since)
+    .sort((a, b) => at(b) - at(a));
   const rows = xs.map(p => '<div class="lm' + (p.alert ? ' alert' : '') + '" onclick="leadHistoryOpen(\'' + esc(p.label) + '\')"><span class="pchip ' + esc(p.product) + '">' + esc(p.productLabel) + '</span>'
     + '<span class="tx"><b>' + esc(p.name || '(이름 없음)') + '</b>' + (p.company ? ' · ' + esc(p.company) : '') + (p.phone ? ' <span class="ph">☎ ' + esc(p.phone) + '</span>' : '') + '</span><span class="why">' + esc(p.reason.replace(/^🆕\s*/, '')) + '</span></div>').join('');
   return '<div class="sec c-lead ldmini"><h2>📣 전화할 DB <small>최근 ' + LEAD_ROLL_DAYS + '일 들어온 것 · 새 DB·오늘 걸 곳 · 누르면 📒 통화 이력</small><span class="cnt">' + xs.length + '</span></h2>'
