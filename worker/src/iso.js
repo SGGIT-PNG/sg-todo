@@ -200,8 +200,19 @@ export const PROFILE_FIELDS = {
   process_order2: '공정순서(제품2)', process_order3: '공정순서(제품3)', scope_en: '영문 인증범위',
   iaf: 'IAF 코드', iaf_sub: 'IAF 세부코드', design: '설계 유무',
   mgno_q: '관리번호(품질)', mgno_e: '관리번호(환경)', mgno_s: '관리번호(안전)', ncr_action_date: '부적합 시정조치 일자',
+  // 2026-10-23 정보요청서 추가 칸 (iso-one이 Y·N·있음 같은 답을 예·아니오로 바꿔 받음)
+  multi_site: '복수 사업장', sites: '추가 사업장', outsource: '외주공정', outsource_proc: '외주 공정 내용',
+  permits: '인허가 사항', env_permit: '환경 허가·신고', site_type: '사업장 입지조건',
+  cert_exp: '타 기관 심사경험', cert_exp_org: '심사경험 기관명',
+  transfer: '전환심사', transfer_org: '이전 인증기관', transfer_last_date: '이전 기관 최근 심사일', transfer_last_type: '이전 기관 최근 심사유형',
+  transfer_valid_q: '이전 인증 유효기간(품질)', transfer_valid_e: '이전 인증 유효기간(환경)', transfer_valid_o: '이전 인증 유효기간(안전)',
 };
-const P_DATE = new Set(['founding_date', 'ncr_action_date']);
+// 목록에 없는 칸도 이름 모양(영문 소문자·숫자·_)만 맞으면 그대로 보낸다 — iso-one이 칸을 늘려도 업무창은 고칠 필요 없게.
+// 값 검사는 iso-one이 한다(모르는 칸·틀린 값은 반영하지 않고 result에 「건너뜀」).
+const P_KEY = /^[a-z][a-z0-9_]{1,40}$/;
+export const profileLabel = (k) => PROFILE_FIELDS[k] || k;
+const P_LONG = new Set(['sites', 'permits', 'process_order', 'process_order2', 'process_order3', 'prod_facility', 'outsource_proc']);
+const P_DATE = new Set(['founding_date', 'ncr_action_date', 'transfer_last_date']);
 const P_NUM = new Set(['emp_total', 'emp_exec', 'emp_reg', 'emp_day', 'emp_out']);
 const P_ENUM = { ind: IND_LIST, shift: ['1교대', '2교대', '3교대', '기타'], design: ['있다', '없다'] };
 
@@ -210,9 +221,9 @@ export function normProfile(p, nowMs) {
   if (!p || typeof p !== 'object' || Array.isArray(p)) throw new RuleError('profile은 {칸: 값} 묶음이어야 합니다');
   const out = {}, bad = [];
   for (const [k, raw] of Object.entries(p)) {
-    if (!(k in PROFILE_FIELDS)) { bad.push('모르는 칸 「' + k + '」'); continue; }
+    if (!(k in PROFILE_FIELDS) && !P_KEY.test(k)) { bad.push('칸 이름 「' + k + '」(영문 소문자·숫자·_ — iso-one이 알려 준 key 그대로)'); continue; }
     if (raw === undefined || raw === null) continue;
-    if (typeof raw !== 'string' && typeof raw !== 'number') { bad.push(PROFILE_FIELDS[k] + ' 값은 글자나 숫자'); continue; }
+    if (typeof raw !== 'string' && typeof raw !== 'number') { bad.push(profileLabel(k) + ' 값은 글자나 숫자'); continue; }
     const v = String(raw).trim();
     if (!v) continue;
     if (P_DATE.has(k)) {
@@ -227,7 +238,7 @@ export function normProfile(p, nowMs) {
     } else if (P_ENUM[k]) {
       if (!P_ENUM[k].includes(v)) { bad.push(PROFILE_FIELDS[k] + ' 값은 ' + P_ENUM[k].join('·') + ' 중 하나 — 「' + v + '」'); continue; }
       out[k] = v;
-    } else out[k] = v.slice(0, 500);
+    } else out[k] = v.slice(0, P_LONG.has(k) ? 2000 : 500);
   }
   if (bad.length) throw new RuleError('업체 정보를 고쳐 주세요: ' + bad.join(' / '));
   if (!Object.keys(out).length) throw new RuleError('보낼 업체 정보가 없습니다(profile 칸을 하나 이상)');
@@ -294,7 +305,7 @@ export function describeProfile(d) {
   const p = [];
   const head = describe(d); if (head) p.push(head);
   const keys = Object.keys(d.profile || {});
-  p.push('업체 정보 ' + keys.length + '칸(' + keys.map(k => PROFILE_FIELDS[k]).join(', ') + ')');
+  p.push('업체 정보 ' + keys.length + '칸(' + keys.map(profileLabel).join(', ') + ')');
   if (d.createIfMissing) p.push('없으면 새로 등록' + (d.assignee ? '(' + d.assignee + ')' : ''));
   return p.join(' · ');
 }

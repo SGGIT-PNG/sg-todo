@@ -204,8 +204,8 @@ export const TOOLS = [
       atype: { type: 'string', enum: ATYPES, description: '이번 심사 유형(새 등록 때 첫 심사 유형)' },
       s1Date: { type: 'string', description: '1단계 심사일 — 2026-10-01 (여러 날은 2026-10-01~02)' },
       s2Date: { type: 'string', description: '2단계 심사일 — 같은 형식' },
-      profile: { type: 'object', description: '업체 정보 칸(아는 것만). 업종 ind는 ' + IND_LIST.join('·') + ' 중 하나. 날짜는 YYYY-MM-DD, 인원은 숫자, 근무형태 shift는 1교대·2교대·3교대·기타, 설계 design은 있다·없다, 관리번호는 접두어 없이(0614)',
-        additionalProperties: false, properties: Object.fromEntries(Object.entries(PROFILE_FIELDS).map(([k, label]) => [k, { type: 'string', description: label }])) },
+      profile: { type: 'object', description: '업체 정보 칸(아는 것만). 업종 ind는 ' + IND_LIST.join('·') + ' 중 하나. 날짜는 YYYY-MM-DD, 인원은 숫자, 근무형태 shift는 1교대·2교대·3교대·기타, 설계 design은 있다·없다, 관리번호는 접두어 없이(0614). 예·아니오 칸(multi_site·outsource·env_permit·cert_exp·transfer)은 업체 답 그대로(Y·N·있음도 됨). iso_update_status가 알려 준 빈 칸 key는 아래 목록에 없어도 그대로 넣으면 된다(iso-one이 검사)',
+        additionalProperties: { type: 'string' }, properties: Object.fromEntries(Object.entries(PROFILE_FIELDS).map(([k, label]) => [k, { type: 'string', description: label }])) },
       createIfMissing: { type: 'boolean', description: 'iso-one에 없으면 새로 등록(기본 true)' },
       assignee: { type: 'string', description: '(선택) 새 등록을 맡을 iso-one 로그인 이메일 — 그 계정의 iso-one만 등록' },
       note: { type: 'string', description: '짧은 메모(개인정보 금지)' },
@@ -229,7 +229,8 @@ export const TOOLS = [
 
 // ── 보여 주는 글 ──
 // iso-one이 업체 정보 반영 뒤 알려 준 빈 칸 — 라벨(키). 키 그대로 iso_profile로 다시 보내면 된다(s1Date·s2Date는 바깥 칸)
-const missTxt = (head, arr) => Array.isArray(arr) && arr.length ? '\n   ' + head + ': ' + arr.map(x => x.label + '(' + x.key + ')').join(', ') : '';
+// choices(선택 칸 허용 값)가 오면 「[예/아니오]」로 붙여 정보요청서 선택지로 쓰게 한다
+const missTxt = (head, arr) => Array.isArray(arr) && arr.length ? '\n   ' + head + ': ' + arr.map(x => x.label + '(' + x.key + ')' + (Array.isArray(x.choices) && x.choices.length ? '[' + x.choices.join('/') + ']' : '')).join(', ') : '';
 // iso-one이 from(sg = SG가 정함 · client = 기업 정보요청서)을 붙여 주면 나눠서 보여 준다(없으면 예전처럼 필수·권장)
 function missBlock(d) {
   const req = Array.isArray(d.missing) ? d.missing : [], opt = Array.isArray(d.missingOptional) ? d.missingOptional : [];

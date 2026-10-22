@@ -118,7 +118,15 @@ test('업체 정보 정리 — 칸 검사·숫자·날짜·목록', () => {
   const p = normProfile(YS, NOW);
   assert.equal(p.emp_total, '3'); assert.equal(p.founding_date, '2026-09-08'); assert.equal(p.ind, '식품업'); assert.equal(p.mgno_q, '0614');
   assert.deepEqual(normProfile({ ceo: '  홍길동 ', addr: '', mgr: null }, NOW), { ceo: '홍길동' });
-  assert.throws(() => normProfile({ ceo: 'a', foo: 1 }, NOW), /모르는 칸 「foo」/);
+  // 목록에 없는 칸도 이름 모양만 맞으면 그대로(iso-one이 검사) — 이상한 이름만 거절
+  assert.deepEqual(normProfile({ ceo: 'a', new_field_2027: ' 값 ' }, NOW), { ceo: 'a', new_field_2027: '값' });
+  assert.throws(() => normProfile({ ceo: 'a', '대표자': 1 }, NOW), /칸 이름 「대표자」/);
+  assert.throws(() => normProfile({ 'Bad-Key': 1 }, NOW), /칸 이름/);
+  // 정보요청서 추가 칸(2026-10-23) — 예·아니오 답은 그대로(iso-one이 Y·있음을 바꿈), 날짜는 정리, 긴 칸은 2000자
+  const rq = normProfile({ multi_site: 'Y', sites: '2공장 / 충북 음성군 / 12명 / 포장\n'.repeat(30), transfer: '예', transfer_last_date: '2025.10.20', transfer_valid_q: '2024.01.10 - 2027.01.09', permits: '대기 4종' }, NOW);
+  assert.equal(rq.multi_site, 'Y'); assert.equal(rq.transfer_last_date, '2025-10-20'); assert.equal(rq.transfer_valid_q, '2024.01.10 - 2027.01.09');
+  assert.ok(rq.sites.length > 500);
+  assert.throws(() => normProfile({ transfer_last_date: '작년 가을' }, NOW), /이전 기관 최근 심사일 날짜/);
   assert.throws(() => normProfile({ ind: '우주업' }, NOW), /업종 값은/);
   assert.throws(() => normProfile({ founding_date: '2026-13-45' }, NOW), /설립일 날짜/);
   assert.throws(() => normProfile({ emp_total: '미정' }, NOW), /총 인원 숫자/);
@@ -173,6 +181,12 @@ test('업체 정보 보내기 — 우편함 한 줄·같은 내용 한 건·반�
     missingOptional: [{ key: 'dept_names', label: '부서명', from: 'client' }] });
   const st3 = await callTool('iso_update_status', { company: '영심' }, deps);
   assert.match(st3, /SG가 정할 칸: 관리번호\(품질\)\(mgno_q\)/);
+  // 선택 칸은 허용 값(choices)을 붙여 보여 준다 — 정보요청서 선택지
+  Object.assign(db.store.get('iso_inbox/' + row.id), { missing: [], missingOptional: [{ key: 'multi_site', label: '복수 사업장', from: 'client', choices: ['예', '아니오'] }] });
+  assert.match(await callTool('iso_update_status', { company: '영심' }, deps), /기업 요청\(권장\): 복수 사업장\(multi_site\)\[예\/아니오\]/);
+  // 목록에 없는 새 칸도 Claude 도구로 그대로 보내진다
+  const out2 = await callTool('iso_profile', { company: '영심', profile: { multi_site: '아니오', future_key: '값' }, author: '정석진' }, deps);
+  assert.match(out2, /업체 정보 2칸\(복수 사업장, future_key\)/);
   assert.match(st3, /기업 요청\(필수\): 인증범위\(scope\)/);
   assert.match(st3, /기업 요청\(권장\): 부서명\(dept_names\)/);
   const acts = [...db.store.entries()].filter(([p]) => p.startsWith('activity/')).map(([, d]) => d.summary);
