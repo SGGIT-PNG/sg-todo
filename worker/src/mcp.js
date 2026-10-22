@@ -230,6 +230,13 @@ export const TOOLS = [
 // ── 보여 주는 글 ──
 // iso-one이 업체 정보 반영 뒤 알려 준 빈 칸 — 라벨(키). 키 그대로 iso_profile로 다시 보내면 된다(s1Date·s2Date는 바깥 칸)
 const missTxt = (head, arr) => Array.isArray(arr) && arr.length ? '\n   ' + head + ': ' + arr.map(x => x.label + '(' + x.key + ')').join(', ') : '';
+// iso-one이 from(sg = SG가 정함 · client = 기업 정보요청서)을 붙여 주면 나눠서 보여 준다(없으면 예전처럼 필수·권장)
+function missBlock(d) {
+  const req = Array.isArray(d.missing) ? d.missing : [], opt = Array.isArray(d.missingOptional) ? d.missingOptional : [];
+  if (![...req, ...opt].some(x => x.from)) return missTxt('빈 필수 칸', req) + missTxt('빈 권장 칸', opt);
+  const by = (arr, f) => arr.filter(x => (x.from || 'client') === f);
+  return missTxt('SG가 정할 칸', by(req, 'sg').concat(by(opt, 'sg'))) + missTxt('기업 요청(필수)', by(req, 'client')) + missTxt('기업 요청(권장)', by(opt, 'client'));
+}
 const catTxt = (c) => c ? ' {' + (CAT_LABEL[c] || c) + '}' : '';
 const SHORT = { call: '📞 통화', ing: '진행', todo: '예정', idea: '💡 제안', done: '완료', trash: '휴지통' };
 const md = (ds) => ds ? ds.slice(5).replace('-', '/') : '';
@@ -412,7 +419,7 @@ export async function callTool(name, args, { db, email, nowMs, env = {}, fetchFn
       const ST = { pending: '⏳ 대기', applying: '🔄 처리 중', applied: '✅ 반영', rejected: '⚠ 못 함' };
       return rows.map(d => kstTime(d.createdAt) + ' ' + (ST[d.state] || d.state) + ' · ' + d.companyName + ' · ' + (d.kind === 'profile' ? describeProfile(d) : isoDescribe(d)) + (d.by ? ' — ' + d.by : '')
         + (d.result ? '\n   결과: ' + d.result : '') + (d.hint ? '\n   ' + d.hint : '')
-        + missTxt('빈 필수 칸', d.missing) + missTxt('빈 권장 칸', d.missingOptional)).join('\n');
+        + missBlock(d)).join('\n');
     }
     case 'lead_reset': {
       if (String(rest.confirm || '').trim() !== '초기화') throw new RuleError('지우기 전 확인: confirm에 「초기화」를 넣어 주세요 (사용자에게 먼저 확인)');

@@ -168,6 +168,13 @@ test('업체 정보 보내기 — 우편함 한 줄·같은 내용 한 건·반�
   const st2 = await callTool('iso_update_status', { company: '영심' }, deps);
   assert.match(st2, /빈 필수 칸: IAF 코드\(iaf\)/);
   assert.match(st2, /빈 권장 칸: 전화\(tel\), 1단계 심사일\(s1Date\)/);
+  // from이 붙으면 SG가 정할 칸 / 기업 요청으로 나눠 보여 준다
+  Object.assign(db.store.get('iso_inbox/' + row.id), { missing: [{ key: 'mgno_q', label: '관리번호(품질)', from: 'sg' }, { key: 'scope', label: '인증범위', from: 'client' }],
+    missingOptional: [{ key: 'dept_names', label: '부서명', from: 'client' }] });
+  const st3 = await callTool('iso_update_status', { company: '영심' }, deps);
+  assert.match(st3, /SG가 정할 칸: 관리번호\(품질\)\(mgno_q\)/);
+  assert.match(st3, /기업 요청\(필수\): 인증범위\(scope\)/);
+  assert.match(st3, /기업 요청\(권장\): 부서명\(dept_names\)/);
   const acts = [...db.store.entries()].filter(([p]) => p.startsWith('activity/')).map(([, d]) => d.summary);
   assert.ok(acts.some(s => /🏢 업체 정보 → iso-one 우편함: \(주\)영심/.test(s)));
 });
