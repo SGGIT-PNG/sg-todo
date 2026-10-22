@@ -206,6 +206,9 @@ export const PROFILE_FIELDS = {
   cert_exp: '타 기관 심사경험', cert_exp_org: '심사경험 기관명',
   transfer: '전환심사', transfer_org: '이전 인증기관', transfer_last_date: '이전 기관 최근 심사일', transfer_last_type: '이전 기관 최근 심사유형',
   transfer_valid_q: '이전 인증 유효기간(품질)', transfer_valid_e: '이전 인증 유효기간(환경)', transfer_valid_o: '이전 인증 유효기간(안전)',
+  dept_people: '부서별 담당자', env_facility: '환경 배출·방지시설', safety_facility: '안전 주요 설비', energy_facility: '에너지 주요 시설',
+  haz_danger: '위험물질', haz_toxic: '유해물질', haz_air: '대기오염물질',
+  atype_q: '심사유형(품질)', atype_e: '심사유형(환경)', atype_o: '심사유형(안전보건)',
 };
 // 목록에 없는 칸도 이름 모양(영문 소문자·숫자·_)만 맞으면 그대로 보낸다 — iso-one이 칸을 늘려도 업무창은 고칠 필요 없게.
 // 값 검사는 iso-one이 한다(모르는 칸·틀린 값은 반영하지 않고 result에 「건너뜀」).
