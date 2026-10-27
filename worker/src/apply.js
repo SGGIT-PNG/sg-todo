@@ -66,7 +66,7 @@ export function parseApply(d, nowMs = Date.now()) {
   const bizno = fmtBizno(d.bizno);
   const [dept, title] = t(d.mgr_title).includes('/') ? t(d.mgr_title).split('/').map(s => s.trim()) : ['', t(d.mgr_title)];
   const p = {
-    name: t(d.co_name, 100), en: t(d.co_en, 200), ceo: t(d.ceo, 50), addr: t(d.addr, 200), tel: t(d.tel, 30), scope: t(d.scope, 1000),
+    name: t(d.co_name, 100), en: t(d.co_en, 200), ceo: t(d.ceo, 50), addr: t(d.addr, 200), addr_zip: /^\d{5}$/.test(t(d.addr_zip)) ? t(d.addr_zip) : '', tel: t(d.tel, 30), scope: t(d.scope, 1000),
     founding_date: /^\d{4}-\d{2}-\d{2}$/.test(t(d.founding)) ? t(d.founding) : '',
     fax: t(d.fax, 30), homepage: t(d.homepage, 200),
     mgr: t(d.mgr, 50), mgr_dept: dept, mgr_title: title, mgr_hp: t(d.mgr_hp, 30), mgr_email: t(d.mgr_email, 100),
@@ -96,7 +96,7 @@ export function parseApply(d, nowMs = Date.now()) {
   const later = LATER.filter(([k]) => !t(d[k])).map(([, label]) => label);
   const extra = {
     stdEtc: stds.includes('etc') ? t(d.std_etc, 200) || '기타 규격 상담' : '',
-    products: t(d.products), when: t(d.when, 20), certNeed: t(d.cert_need, 200), shipAddr: t(d.ship_addr, 200), memo: t(d.memo, 2000),
+    products: t(d.products), when: t(d.when, 20), certNeed: t(d.cert_need, 200), shipAddr: d.ship_same === true ? '사업장 주소와 같음' : [t(d.ship_zip, 10) && /^\d{5}$/.test(t(d.ship_zip)) ? '(' + t(d.ship_zip) + ')' : '', t(d.ship_addr, 200)].filter(Boolean).join(' '), memo: t(d.memo, 2000),
     safety: stds.includes('o') ? { name: t(d.safe_mgr, 50), title: t(d.safe_title, 50), hp: t(d.safe_hp, 30), email: t(d.safe_email, 100) } : null,
   };
   return { bizno, profile: p, certs, atype: ATYPE[atypeKey] || '', transfer: atypeKey === '전환', later, extra, contact: { name: p.mgr, hp: p.mgr_hp, email: p.mgr_email } };
@@ -160,7 +160,7 @@ export function applyDocHtml(d, meta) {
     '<h1 style="color:#003477">ISO 인증심사 접수서</h1>',
     '<p>접수번호 <b>' + e(meta.no) + '</b> · 접수 일시 ' + e(meta.at) + ' · 온라인 접수(iso-one.web.app/apply)</p>',
     sec('1. 회사 정보', [row('국문 상호', v('co_name')), row('영문 상호', v('co_en')), row('사업자등록번호', meta.bizno), row('대표자', v('ceo')),
-      row('사업장 주소', v('addr')), row('대표 전화', v('tel')), row('팩스', v('fax')), row('설립일', v('founding')), row('홈페이지', v('homepage')), row('인증서 받을 주소', v('ship_addr'))]),
+      row('사업장 주소', (/^\d{5}$/.test(v('addr_zip')) ? '(' + v('addr_zip') + ') ' : '') + v('addr')), row('대표 전화', v('tel')), row('팩스', v('fax')), row('설립일', v('founding')), row('홈페이지', v('homepage')), row('인증서 받을 주소', d.ship_same === true ? '사업장 주소와 같음' : (/^\d{5}$/.test(v('ship_zip')) ? '(' + v('ship_zip') + ') ' : '') + v('ship_addr'))]),
     sec('2. 인증 신청', [row('인증 규격', stds.map(k => STD_NAME[k] || k).join(', ') + (has('etc') && v('std_etc') ? ' (' + v('std_etc') + ')' : '')),
       row('심사 유형', ATYPE_NAME[v('atype')] || v('atype')), row('인증범위', v('scope')), row('설계·개발 업무', v('design')),
       row('희망 심사 시기', v('when')), row('인증서가 필요한 날짜', v('cert_need'))]),
@@ -289,7 +289,7 @@ export async function submitApply(env, { data, files = [] }, deps) {
   const memo = [
     '접수번호 ' + no + ' · ' + a.bizno + ' · ' + stdTxt + ' · ' + (a.atype || (a.transfer ? '기관 이전(전환)' : '')),
     '담당 ' + a.contact.name + ' ' + a.contact.hp + ' ' + a.contact.email,
-    a.extra.when ? '희망 시기: ' + a.extra.when : '', a.extra.certNeed ? '인증서 필요: ' + a.extra.certNeed : '',
+    a.extra.when ? '희망 시기: ' + a.extra.when : '', a.extra.certNeed ? '인증서 필요: ' + a.extra.certNeed : '', a.extra.shipAddr && a.extra.shipAddr !== '사업장 주소와 같음' ? '인증서 받을 주소: ' + a.extra.shipAddr : '',
     a.extra.memo ? '요청사항: ' + a.extra.memo : '',
     later.length ? '추후 요청할 것: ' + later.join(', ') : '필요 항목 모두 작성',
     docLink ? '접수서: ' + docLink : '', folderLink ? '첨부 폴더: ' + folderLink : '', ...fileNotes,

@@ -31,6 +31,11 @@ test('접수 값 → iso-one 칸', () => {
   assert.equal(a.profile.emp_total, '28');
   assert.equal(a.profile.safety_mgr, '김안전');
   assert.equal(a.profile.supplier, '㈜한국철강');
+  // 우편번호·인증서 받을 주소
+  const z = parseApply(Object.assign(base(), { addr_zip: '18622', ship_same: true, founding: '2008-08-04' }), NOW);
+  assert.equal(z.profile.addr_zip, '18622'); assert.equal(z.extra.shipAddr, '사업장 주소와 같음'); assert.equal(z.profile.founding_date, '2008-08-04');
+  const z2 = parseApply(Object.assign(base(), { addr_zip: '12', ship_same: false, ship_zip: '04524', ship_addr: '서울 중구 세종대로 110', founding: '200808-04' }), NOW);
+  assert.ok(!('addr_zip' in z2.profile)); assert.equal(z2.extra.shipAddr, '(04524) 서울 중구 세종대로 110'); assert.ok(!('founding_date' in z2.profile));
   assert.match(a.profile.permits, /^있음/);
   assert.ok(!('transfer' in a.profile));
   assert.ok(a.later.includes('공정 순서') && !a.later.includes('주요 매출처'));
