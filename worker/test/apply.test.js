@@ -83,8 +83,8 @@ test('기존 고객사 — 바뀐 내용만(필수 최소·추후 요청 없음)
   const [ib] = docs(db, 'iso_inbox'); assert.ok(!('certs' in ib)); assert.ok(!('atype' in ib)); assert.equal(ib.source, 'apply');
   const [rec] = docs(db, 'iso_apply'); assert.equal(rec.existing, true);
   const [td] = docs(db, 'todos');
-  assert.match(td.text, /세웅바이오.*ISO 정보 회신 확인/); assert.match(td.memo, /기존 고객사 회신/); assert.doesNotMatch(td.memo, /자동 등록/); assert.doesNotMatch(td.memo, / · {2}·/);
-  assert.match(applyDocHtml(d, { no: 'ISO-1', at: '', bizno: BIZ, files: [], later: [] }), /기존 고객사/);
+  assert.match(td.text, /세웅바이오.*ISO 정보 회신 확인/); assert.match(td.memo, /기존 ISO 고객사 회신/); assert.doesNotMatch(td.memo, /자동 등록/); assert.doesNotMatch(td.memo, / · {2}·/);
+  assert.match(applyDocHtml(d, { no: 'ISO-1', at: '', bizno: BIZ, files: [], later: [] }), /기존 ISO 고객사/);
 });
 
 test('하루 한도·숨은 칸', async () => {

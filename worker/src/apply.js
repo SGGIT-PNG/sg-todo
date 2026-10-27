@@ -164,7 +164,7 @@ export function applyDocHtml(d, meta) {
   const parts = [
     '<h1 style="color:#003477">ISO 인증심사 접수서</h1>',
     '<p>접수번호 <b>' + e(meta.no) + '</b> · 접수 일시 ' + e(meta.at) + ' · 온라인 접수(iso-one.web.app/apply)'
-      + (d.existing === true ? ' · <b style="color:#8A5300">기존 고객사 — 바뀐 내용·요청받은 항목만 작성(비운 칸 = 지금 정보 그대로)</b>' : '') + '</p>',
+      + (d.existing === true ? ' · <b style="color:#8A5300">기존 ISO 고객사 — 바뀐 내용·요청받은 항목만 작성(비운 칸 = 지금 정보 그대로)</b>' : '') + '</p>',
     sec('1. 회사 정보', [row('국문 상호', v('co_name')), row('영문 상호', v('co_en')), row('사업자등록번호', meta.bizno), row('대표자', v('ceo')),
       row('사업장 주소', (/^\d{5}$/.test(v('addr_zip')) ? '(' + v('addr_zip') + ') ' : '') + v('addr')), row('대표 전화', v('tel')), row('팩스', v('fax')), row('설립일', v('founding')), row('홈페이지', v('homepage')), row('인증서 받을 주소', d.ship_same === true ? '사업장 주소와 같음' : (/^\d{5}$/.test(v('ship_zip')) ? '(' + v('ship_zip') + ') ' : '') + v('ship_addr'))]),
     sec('2. 인증 신청', [row('인증 규격', stds.map(k => STD_NAME[k] || k).join(', ') + (has('etc') && v('std_etc') ? ' (' + v('std_etc') + ')' : '')),
@@ -297,7 +297,7 @@ export async function submitApply(env, { data, files = [] }, deps) {
     '담당 ' + a.contact.name + ' ' + a.contact.hp + ' ' + a.contact.email,
     a.extra.when ? '희망 시기: ' + a.extra.when : '', a.extra.certNeed ? '인증서 필요: ' + a.extra.certNeed : '', a.extra.shipAddr && a.extra.shipAddr !== '사업장 주소와 같음' ? '인증서 받을 주소: ' + a.extra.shipAddr : '',
     a.extra.memo ? '요청사항: ' + a.extra.memo : '',
-    a.existing ? '기존 고객사 회신 — 바뀐 내용·요청받은 항목만 작성. iso-one은 빈 칸만 채우고 다른 값은 「차이」로 안내합니다.'
+    a.existing ? '기존 ISO 고객사 회신 — 바뀐 내용·요청받은 항목만 작성. iso-one은 빈 칸만 채우고 다른 값은 「차이」로 안내합니다.'
       : later.length ? '추후 요청할 것: ' + later.join(', ') : '필요 항목 모두 작성',
     docLink ? '접수서: ' + docLink : '', folderLink ? '첨부 폴더: ' + folderLink : '', ...fileNotes,
     a.existing ? '' : 'iso-one에는 화면을 열면 자동 등록됩니다(업종은 「제조업 — 확인 필요」로 들어가니 확인).',
