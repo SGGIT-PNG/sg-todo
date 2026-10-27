@@ -70,6 +70,23 @@ test('접수 → 우편함·접수 원본·할 일 (첨부 설정 전)', async (
   assert.equal(r.todo, td._id);
 });
 
+test('기존 고객사 — 바뀐 내용만(필수 최소·추후 요청 없음)', async () => {
+  const d = { existing: true, co_name: '유한회사 세웅바이오', bizno: '4038151013', mgr: '김신혜', mgr_hp: '010-5555-6666', agree: true, outsource: '없다', multi_site: '아니오' };
+  const a = parseApply(d, NOW);
+  assert.equal(a.existing, true); assert.deepEqual(a.certs, []); assert.equal(a.atype, ''); assert.deepEqual(a.later, []);
+  assert.equal(a.profile.outsource, '없다'); assert.ok(!('scope' in a.profile)); assert.ok(!('emp_total' in a.profile));
+  assert.throws(() => parseApply({ existing: true, co_name: '세웅', bizno: '4038151013', agree: true }, NOW), /ISO 담당자.*담당자 휴대전화/);
+  assert.throws(() => parseApply(Object.assign({}, d, { existing: false }), NOW), /영문 상호/);   // 처음 신청이면 기존 필수 그대로
+  const db = fakeDb();
+  const r = await submitApply(env, { data: d, files: [] }, { db, nowMs: NOW, ip: '1.2.3.9' });
+  assert.deepEqual(r.later, []);   // 첨부도 추후 요청에 안 넣음
+  const [ib] = docs(db, 'iso_inbox'); assert.ok(!('certs' in ib)); assert.ok(!('atype' in ib)); assert.equal(ib.source, 'apply');
+  const [rec] = docs(db, 'iso_apply'); assert.equal(rec.existing, true);
+  const [td] = docs(db, 'todos');
+  assert.match(td.text, /세웅바이오.*ISO 정보 회신 확인/); assert.match(td.memo, /기존 고객사 회신/); assert.doesNotMatch(td.memo, /자동 등록/); assert.doesNotMatch(td.memo, / · {2}·/);
+  assert.match(applyDocHtml(d, { no: 'ISO-1', at: '', bizno: BIZ, files: [], later: [] }), /기존 고객사/);
+});
+
 test('하루 한도·숨은 칸', async () => {
   const db = fakeDb();
   for (let i = 0; i < 3; i++) await submitApply(env, { data: base(), files: [] }, { db, nowMs: NOW + i });
