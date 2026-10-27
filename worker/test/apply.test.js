@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fakeDb } from './fakeDb.js';
-import { validBizno, parseApply, submitApply, applyConfig, collectFiles } from '../src/apply.js';
+import { validBizno, parseApply, submitApply, applyConfig, collectFiles, applyDocHtml } from '../src/apply.js';
 import { handle } from '../src/index.js';
 
 const NOW = Date.parse('2026-10-27T01:00:00Z');   // 한국 2026-10-27 10:00
@@ -75,12 +75,16 @@ test('하루 한도·숨은 칸', async () => {
 });
 
 test('첨부 → 드라이브(가짜)', async () => {
-  const calls = [];
+  const calls = [], docBodies = [];
   const fetchFn = async (url, opt) => {
     calls.push(url);
     if (url.includes('oauth2')) return new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }));
+    if (url.includes('/upload/drive/v3/files')) {
+      const txt = await new Response(opt.body).text();
+      if (txt.includes('application/vnd.google-apps.document')) { docBodies.push(txt); return new Response(JSON.stringify({ id: 'DOC1', webViewLink: 'https://docs.google.com/document/d/DOC1/edit' })); }
+      return new Response(JSON.stringify({ id: 'F' + calls.length, name: 'x' }));
+    }
     if (url.includes('/drive/v3/files')) return new Response(JSON.stringify({ id: 'FOLDER1', webViewLink: 'https://drive.google.com/drive/folders/FOLDER1' }));
-    if (url.includes('/upload/drive/v3/files')) return new Response(JSON.stringify({ id: 'F' + calls.length, name: 'x' }));
     return new Response('{}', { status: 404 });
   };
   // 서명이 되는 가짜 키
@@ -98,7 +102,27 @@ test('첨부 → 드라이브(가짜)', async () => {
   assert.equal(rec.folder, 'https://drive.google.com/drive/folders/FOLDER1');
   assert.ok(!rec.later.some(x => x.includes('사업자등록증')));
   assert.ok(rec.later.some(x => x.includes('허가증')));   // 인허가 「있음」인데 허가증 안 올림
-  assert.equal(calls.filter(u => u.includes('/upload/')).length, 2);
+  assert.equal(calls.filter(u => u.includes('/upload/')).length, 3);   // 첨부 2 + 접수서 1
+  assert.equal(rec.doc, 'https://docs.google.com/document/d/DOC1/edit');
+  const [ib] = docs(db, 'iso_inbox');
+  assert.equal(ib.applyDoc, 'https://docs.google.com/document/d/DOC1/edit'); assert.equal(ib.applyFolder, 'https://drive.google.com/drive/folders/FOLDER1');
+  assert.match(docBodies[0], /접수서_ISO-261027-\d{4}_주식회사 한빛정밀/);
+  assert.match(docBodies[0], /12월 입찰 전 인증 필요/); assert.match(docBodies[0], /등록증\.pdf/);
+  const [td] = docs(db, 'todos'); assert.match(td.memo, /접수서: https:\/\/docs\.google\.com/);
+  // 첨부가 없어도 드라이브 설정이 있으면 폴더 + 접수서
+  const db2 = fakeDb(); docBodies.length = 0;
+  const r2 = await submitApply(env2, { data: base(), files: [] }, { db: db2, nowMs: NOW, fetchFn });
+  assert.equal(r2.doc, true); assert.equal(docBodies.length, 1);
+});
+
+test('접수서 내용 — 업체가 쓴 그대로, 규격에 맞는 칸만', () => {
+  const h = applyDocHtml(Object.assign(base(), { products: '연료 분사 노즐', safe_title: '관리팀 / 부장', ship_addr: '' }),
+    { no: 'ISO-261027-1234', at: '2026-10-27 10:00', bizno: BIZ, files: [], later: ['공정 순서'] });
+  assert.match(h, /ISO-261027-1234/); assert.match(h, /주식회사 한빛정밀/); assert.match(h, /연료 분사 노즐/);
+  assert.match(h, /ISO 9001, ISO 45001/); assert.match(h, /안전보건 관리 담당자/); assert.match(h, /김안전/);
+  assert.doesNotMatch(h, /사업장 입지/);   // 14001 안 고름
+  assert.match(h, /추후 요청할 항목/); assert.match(h, /\(비움\)/);
+  assert.doesNotMatch(applyDocHtml(Object.assign(base(), { memo: '<script>x</script>' }), { no: 'N', at: '', bizno: BIZ, files: [], later: [] }), /<script>/);
 });
 
 test('파일 검사', async () => {
