@@ -98,7 +98,7 @@ export async function handle(request, env, deps = {}) {
     if (!path.startsWith('/api/')) return json({ ok: false, error: '없는 주소입니다' }, 404, cors);
 
     // ── 🏅 ISO 온라인 접수(공개 — 로그인 없음). 업체가 iso-one 접수 화면에서 부른다 ──
-    if (path === '/api/apply/config' && request.method === 'GET') return json(applyConfig(env), 200, cors);
+    if (path === '/api/apply/config' && request.method === 'GET') return json(applyConfig(env, url.searchParams.get('brand')), 200, cors);
     if (path === '/api/apply' && request.method === 'POST') {
       const len = Number(request.headers.get('content-length') || 0);
       if (len > 45 * 1024 * 1024) throw new RuleError('첨부 파일은 모두 합쳐 40MB까지입니다');

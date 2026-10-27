@@ -21,6 +21,7 @@ ALLOWED_ORIGINS = "https://sggit-png.github.io,http://localhost:8765,https://iso
 APPLY_ASSIGNEE = "sgceo@sgsolutionss.com"
 # 🏅 ISO 온라인 접수 — 첨부 서류를 넣을 드라이브 폴더 ID(공유 드라이브 안, 서비스 계정을 구성원으로). 비우면 접수 화면이 첨부 칸 대신 「메일로 요청」 안내
 APPLY_DRIVE_FOLDER = "1oY_Pol8yGtljeRPxVzwHUdndYeBGGevV"   # 공유 드라이브 「ISO접수신청」 › 온라인 접수 (2026-10-27)
+APPLY_DRIVE_FOLDER_SG = "1cB80Idy9VpNnqbH4oM3hEv5jLegReOsQ"   # 같은 공유 드라이브 › SG솔루션 온라인 접수 (iso-one.web.app/apply-sg)
 META_PAGE_ID = "108091025620236"   # SG솔루션 페이지 (2026-10-13 확인)
 
 # 매일 06:00 한국시간(= 전날 21:00 UTC) — 인증 갱신·ISO·연간신고 할 일 자동 생성 + 휴지통 30일 정리

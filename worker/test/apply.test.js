@@ -87,6 +87,29 @@ test('기존 고객사 — 바뀐 내용만(필수 최소·추후 요청 없음)
   assert.match(applyDocHtml(d, { no: 'ISO-1', at: '', bizno: BIZ, files: [], later: [] }), /기존 ISO 고객사/);
 });
 
+test('접수처 SG솔루션 — 폴더 따로·27001/37301/37001', async () => {
+  assert.equal(applyConfig(Object.assign({}, env, { GCP_SA_KEY: 'k', APPLY_DRIVE_FOLDER: 'JD' }), 'sg').files, false);   // SG 폴더 설정 없음
+  assert.equal(applyConfig(Object.assign({}, env, { GCP_SA_KEY: 'k', APPLY_DRIVE_FOLDER_SG: 'SG' }), 'sg').files, true);
+  assert.equal(applyConfig(Object.assign({}, env, { GCP_SA_KEY: 'k', APPLY_DRIVE_FOLDER_SG: 'SG' }), 'xx').files, false);  // 모르는 접수처 = 정도파트너스
+  // 27001만 → iso-one 우편함 안 씀, 할 일·접수 원본만
+  const db = fakeDb();
+  await submitApply(env, { data: Object.assign(base(), { brand: 'sg', stds: ['isms'] }), files: [] }, { db, nowMs: NOW, ip: '9.9.9.1' });
+  assert.equal(docs(db, 'iso_inbox').length, 0);
+  const [rec] = docs(db, 'iso_apply'); assert.equal(rec.brand, 'sg'); assert.deepEqual(rec.extra.moreStds, ['ISO 27001 정보보호']);
+  const [td] = docs(db, 'todos');
+  assert.match(td.text, /SG솔루션 · ISO-/); assert.match(td.memo, /접수처 SG솔루션/); assert.match(td.memo, /ISO 27001/); assert.match(td.memo, /iso-one에는 등록하지 않음/);
+  // 9001 + 37001 → 우편함엔 9001만
+  const db2 = fakeDb();
+  await submitApply(env, { data: Object.assign(base(), { brand: 'sg', stds: ['q', 'abms'] }), files: [] }, { db: db2, nowMs: NOW, ip: '9.9.9.2' });
+  const [ib] = docs(db2, 'iso_inbox'); assert.deepEqual(ib.certs, ['iso_9001']);
+  const [td2] = docs(db2, 'todos'); assert.match(td2.memo, /9001·ISO 37001/);
+  // 정도파트너스(기본) 할 일 제목엔 접수처 안 붙음
+  const db3 = fakeDb();
+  await submitApply(env, { data: base(), files: [] }, { db: db3, nowMs: NOW, ip: '9.9.9.3' });
+  assert.doesNotMatch(docs(db3, 'todos')[0].text, /SG솔루션/); assert.match(docs(db3, 'todos')[0].memo, /접수처 정도파트너스/);
+  assert.match(applyDocHtml(Object.assign(base(), { brand: 'sg', stds: ['cms'] }), { no: 'ISO-1', at: '', bizno: BIZ, files: [], later: [] }), /접수처 <b>SG솔루션<\/b>[\s\S]*ISO 37301 컴플라이언스/);
+});
+
 test('하루 한도·숨은 칸', async () => {
   const db = fakeDb();
   for (let i = 0; i < 3; i++) await submitApply(env, { data: base(), files: [] }, { db, nowMs: NOW + i });

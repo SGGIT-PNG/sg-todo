@@ -38,6 +38,11 @@ const num = (v) => { const d = String(v ?? '').replace(/\D/g, ''); return d ? St
 
 const ATYPE = { '최초': '최초심사', '사후1': '사후심사(1차)', '사후2': '사후심사(2차)', '갱신': '갱신심사' };
 const STD_CERT = { q: 'iso_9001', e: 'iso_14001', o: 'iso_45001' };
+// 접수처 — 같은 접수 화면을 두 회사가 씀(2026-10-27). 첨부·접수서는 접수처별 공유 드라이브 폴더로
+export const BRANDS = { jd: { name: '정도파트너스', folderEnv: 'APPLY_DRIVE_FOLDER' }, sg: { name: 'SG솔루션', folderEnv: 'APPLY_DRIVE_FOLDER_SG' } };
+export const brandOf = (b) => (BRANDS[b] ? b : 'jd');
+// iso-one이 아직 다루지 않는 규격(SG 접수 화면에서만) — 접수 원본·할 일·접수서에만 남긴다
+const STD_MORE = { isms: 'ISO 27001 정보보호', cms: 'ISO 37301 컴플라이언스', abms: 'ISO 37001 부패방지' };
 const PERMIT = { '있음': '있음 — 첨부 서류(허가증·신고증·등록증)로 확인', '없음': '없음' };
 
 // 비워 두면 「추후 요청」으로 알려 줄 선택 항목 [칸, 이름]
@@ -58,7 +63,7 @@ export function parseApply(d, nowMs = Date.now()) {
     need('scope', '인증범위'); need('mgr_title', '담당자 부서/직위'); need('mgr_email', '담당자 이메일');
   }
   if (!validBizno(d.bizno)) bad.push('사업자등록번호(10자리 숫자를 확인해 주세요)');
-  const stds = (Array.isArray(d.stds) ? d.stds : []).filter(s => ['q', 'e', 'o', 'etc'].includes(s));
+  const stds = (Array.isArray(d.stds) ? d.stds : []).filter(s => ['q', 'e', 'o', 'etc'].includes(s) || STD_MORE[s]);
   if (!stds.length && !existing) bad.push('인증 규격');
   const atypeKey = t(d.atype);
   if (!ATYPE[atypeKey] && atypeKey !== '전환' && !existing) bad.push('심사 유형');
@@ -101,10 +106,11 @@ export function parseApply(d, nowMs = Date.now()) {
   const later = existing ? [] : LATER.filter(([k]) => !t(d[k])).map(([, label]) => label);   // 기존 고객사는 비운 칸 = 지금 정보 그대로
   const extra = {
     stdEtc: stds.includes('etc') ? t(d.std_etc, 200) || '기타 규격 상담' : '',
+    moreStds: stds.filter(s => STD_MORE[s]).map(s => STD_MORE[s]),
     products: t(d.products), when: t(d.when, 20), certNeed: t(d.cert_need, 200), shipAddr: d.ship_same === true ? '사업장 주소와 같음' : [t(d.ship_zip, 10) && /^\d{5}$/.test(t(d.ship_zip)) ? '(' + t(d.ship_zip) + ')' : '', t(d.ship_addr, 200)].filter(Boolean).join(' '), memo: t(d.memo, 2000),
     safety: stds.includes('o') ? { name: t(d.safe_mgr, 50), title: t(d.safe_title, 50), hp: t(d.safe_hp, 30), email: t(d.safe_email, 100) } : null,
   };
-  return { bizno, existing, profile: p, certs, atype: ATYPE[atypeKey] || '', transfer: atypeKey === '전환', later, extra, contact: { name: p.mgr, hp: p.mgr_hp, email: p.mgr_email } };
+  return { bizno, existing, brand: brandOf(t(d.brand)), profile: p, certs, atype: ATYPE[atypeKey] || '', transfer: atypeKey === '전환', later, extra, contact: { name: p.mgr, hp: p.mgr_hp, email: p.mgr_email } };
 }
 
 // 접수번호 ISO-YYMMDD-XXXX (같은 날 겹치면 다시 뽑음)
@@ -151,7 +157,7 @@ async function driveDoc(token, folderId, name, html, fetchFn) {
 }
 
 // 접수서(업체가 쓴 그대로 — 나중에 확인용). d = 접수 화면 값 원본
-const STD_NAME = { q: 'ISO 9001', e: 'ISO 14001', o: 'ISO 45001', etc: '기타 규격(상담)' };
+const STD_NAME = Object.assign({ q: 'ISO 9001', e: 'ISO 14001', o: 'ISO 45001', etc: '기타 규격(상담)' }, STD_MORE);
 const ATYPE_NAME = { '최초': '최초심사', '사후1': '사후심사 1차', '사후2': '사후심사 2차', '갱신': '갱신심사', '전환': '다른 인증기관에서 옮겨 옴(전환)' };
 export function applyDocHtml(d, meta) {
   const e = (x) => String(x == null ? '' : x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])).replace(/\n/g, '<br>');
@@ -163,7 +169,7 @@ export function applyDocHtml(d, meta) {
   const sec = (title, rows) => '<h3 style="color:#003477;margin:14px 0 4px">' + e(title) + '</h3><table style="border-collapse:collapse;width:100%">' + rows.join('') + '</table>';
   const parts = [
     '<h1 style="color:#003477">ISO 인증심사 접수서</h1>',
-    '<p>접수번호 <b>' + e(meta.no) + '</b> · 접수 일시 ' + e(meta.at) + ' · 온라인 접수(iso-one.web.app/apply)'
+    '<p>접수처 <b>' + e(BRANDS[brandOf(t(d.brand))].name) + '</b> · 접수번호 <b>' + e(meta.no) + '</b> · 접수 일시 ' + e(meta.at) + ' · 온라인 접수'
       + (d.existing === true ? ' · <b style="color:#8A5300">기존 ISO 고객사 — 바뀐 내용·요청받은 항목만 작성(비운 칸 = 지금 정보 그대로)</b>' : '') + '</p>',
     sec('1. 회사 정보', [row('국문 상호', v('co_name')), row('영문 상호', v('co_en')), row('사업자등록번호', meta.bizno), row('대표자', v('ceo')),
       row('사업장 주소', (/^\d{5}$/.test(v('addr_zip')) ? '(' + v('addr_zip') + ') ' : '') + v('addr')), row('대표 전화', v('tel')), row('팩스', v('fax')), row('설립일', v('founding')), row('홈페이지', v('homepage')), row('인증서 받을 주소', d.ship_same === true ? '사업장 주소와 같음' : (/^\d{5}$/.test(v('ship_zip')) ? '(' + v('ship_zip') + ') ' : '') + v('ship_addr'))]),
@@ -210,7 +216,7 @@ export async function collectFiles(form) {
   return out;
 }
 
-export function applyConfig(env) { return { ok: true, files: !!(env.APPLY_DRIVE_FOLDER && env.GCP_SA_KEY) }; }
+export function applyConfig(env, brand) { return { ok: true, files: !!(env[BRANDS[brandOf(brand)].folderEnv] && env.GCP_SA_KEY) }; }
 
 // 접수 처리. deps: {db, fetchFn, nowMs, ip}
 export async function submitApply(env, { data, files = [] }, deps) {
@@ -232,14 +238,14 @@ export async function submitApply(env, { data, files = [] }, deps) {
   for (let i = 0; i < 5 && await db.get('iso_apply/' + no); i++) no = receiptNo(nowMs);
 
   // 첨부 → 드라이브
-  const cfg = applyConfig(env);
+  const cfg = applyConfig(env, a.brand), brand = BRANDS[a.brand];
   const saved = [], fileNotes = [];
   let folderLink = '', docLink = '', tok = '', folder = null;
   if (files.length && !cfg.files) fileNotes.push('첨부 ' + files.length + '개는 저장 설정 전이라 받지 못함 — 업체에 메일로 요청');
   if (cfg.files) {   // 드라이브 설정이 있으면 첨부가 없어도 폴더를 만들어 접수서를 남긴다
     try {
       tok = await accessToken(env.GCP_SA_KEY, fetchFn, nowMs, DRIVE_SCOPE);
-      folder = await driveFolder(tok, env.APPLY_DRIVE_FOLDER, no + '_' + a.profile.name.replace(/[\\/:*?"<>|]/g, ''), fetchFn);
+      folder = await driveFolder(tok, env[brand.folderEnv], no + '_' + a.profile.name.replace(/[\\/:*?"<>|]/g, ''), fetchFn);
       folderLink = folder.webViewLink || ('https://drive.google.com/drive/folders/' + folder.id);
       for (const f of files) {
         const r = await driveUpload(tok, folder.id, FILE_KINDS[f.kind] + '_' + f.name, f.type, f.bytes, fetchFn);
@@ -278,11 +284,13 @@ export async function submitApply(env, { data, files = [] }, deps) {
   if (docLink) inboxDoc.applyDoc = docLink;
   if (folderLink) inboxDoc.applyFolder = folderLink;
   const record = {
-    no, day, at: nowMs, existing: a.existing, bizno: a.bizno, companyName: a.profile.name, certs: a.certs, atype: a.atype || (a.transfer ? '전환(기관 이전)' : ''),
+    no, day, at: nowMs, brand: a.brand, existing: a.existing, bizno: a.bizno, companyName: a.profile.name, certs: a.certs, atype: a.atype || (a.transfer ? '전환(기관 이전)' : ''),
     profile: a.profile, extra: a.extra, contact: a.contact, later, files: saved, folder: folderLink, doc: docLink, fileNotes, ipHash, state: 'new',
   };
+  // 27001·37301·37001처럼 iso-one이 아직 다루지 않는 규격만 고른 처음 신청은 우편함에 안 씀(iso-one이 9001·14001·45001로 잘못 등록하지 않게)
+  const toIsoOne = a.certs.length > 0 || (a.existing && !a.extra.moreStds.length) || (!a.extra.moreStds.length && !a.extra.stdEtc);
   await db.transaction(async (tx) => {
-    tx.set('iso_inbox/apply__' + a.bizno.replace(/\D/g, '') + '__' + no, inboxDoc);
+    if (toIsoOne) tx.set('iso_inbox/apply__' + a.bizno.replace(/\D/g, '') + '__' + no, inboxDoc);
     tx.set('iso_apply/' + no, record);
     tx.create('activity/' + nowMs + '-' + Math.random().toString(36).slice(2, 10), {
       at: nowMs, app: 'iso', ref: no, no: 0, action: 'iso_apply', by: '온라인 접수', via: 'apply', bizno: a.bizno, changes: {},
@@ -291,21 +299,21 @@ export async function submitApply(env, { data, files = [] }, deps) {
   });
 
   // 할 일 — 접수 확인 (CRM에 없는 업체라 기업 칸은 비우고 이름을 글에)
-  const stdTxt = a.certs.map(c => c.replace('iso_', '')).join('·') + (a.extra.stdEtc ? (a.certs.length ? ' + ' : '') + a.extra.stdEtc : '');
+  const stdTxt = a.certs.map(c => c.replace('iso_', '')).concat(a.extra.moreStds.map(x => x.split(' ').slice(0, 2).join(' '))).join('·') + (a.extra.stdEtc ? (a.certs.length || a.extra.moreStds.length ? ' + ' : '') + a.extra.stdEtc : '');
   const memo = [
-    '접수번호 ' + [no, a.bizno, stdTxt, a.atype || (a.transfer ? '기관 이전(전환)' : '')].filter(Boolean).join(' · '),
+    '접수처 ' + brand.name + ' · 접수번호 ' + [no, a.bizno, stdTxt, a.atype || (a.transfer ? '기관 이전(전환)' : '')].filter(Boolean).join(' · '),
     '담당 ' + a.contact.name + ' ' + a.contact.hp + ' ' + a.contact.email,
     a.extra.when ? '희망 시기: ' + a.extra.when : '', a.extra.certNeed ? '인증서 필요: ' + a.extra.certNeed : '', a.extra.shipAddr && a.extra.shipAddr !== '사업장 주소와 같음' ? '인증서 받을 주소: ' + a.extra.shipAddr : '',
     a.extra.memo ? '요청사항: ' + a.extra.memo : '',
     a.existing ? '기존 ISO 고객사 회신 — 바뀐 내용·요청받은 항목만 작성. iso-one은 빈 칸만 채우고 다른 값은 「차이」로 안내합니다.'
       : later.length ? '추후 요청할 것: ' + later.join(', ') : '필요 항목 모두 작성',
     docLink ? '접수서: ' + docLink : '', folderLink ? '첨부 폴더: ' + folderLink : '', ...fileNotes,
-    a.existing ? '' : 'iso-one에는 화면을 열면 자동 등록됩니다(업종은 「제조업 — 확인 필요」로 들어가니 확인).',
+    !toIsoOne ? 'iso-one이 다루지 않는 규격만 신청 — iso-one에는 등록하지 않음(접수서·이 메모로 진행)' : a.existing ? '' : 'iso-one에는 화면을 열면 자동 등록됩니다(업종은 「제조업 — 확인 필요」로 들어가니 확인).',
   ].filter(Boolean).join('\n').slice(0, 1990);
   let todo = null;
   try {
     todo = await createTodo({ db, actor: { name: '공동', via: 'apply' }, nowMs, companies: [] },
-      { text: '[' + a.profile.name + '] ' + (a.existing ? 'ISO 정보 회신 확인' : 'ISO 심사 접수 확인') + ' (' + no + ')', category: 'iso', memo },
+      { text: '[' + a.profile.name + '] ' + (a.existing ? 'ISO 정보 회신 확인' : 'ISO 심사 접수 확인') + ' (' + (a.brand === 'jd' ? '' : brand.name + ' · ') + no + ')', category: 'iso', memo },
       { source: 'iso', sourceRef: 'apply:' + no, autoCompany: false });
   } catch (e) { console.error('[ISO 접수] 할 일 만들기 실패', e && e.message); }
 
