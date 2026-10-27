@@ -22,6 +22,7 @@
 //   POST   /api/leads/import          {rows:[{열 이름: 값}], product?, fileName?}  Meta 엑셀·CSV (예비 — 평소엔 자동)
 //   POST   /api/leads/D-0001/act      {action: noans|talk|schedule|won|lost|reopen|memo, date?, time?, memo?}
 //   POST   /api/leads/sync            {full?}  Meta에서 지금 가져오기 (평소엔 5분마다 예약 작업)
+//   GET    /api/apply/config · POST /api/apply   🏅 ISO 인증심사 온라인 접수 — 로그인 없음(공개), apply.js
 //   POST   /mcp                           Claude 채팅 도구(MCP) — 출입증은 /oauth/* 로그인으로 (mcp.js · oauth.js)
 //   GET    /.well-known/oauth-protected-resource · /.well-known/oauth-authorization-server   커넥터 안내 문서
 //
@@ -37,6 +38,7 @@ import {
 import { previewAuto, runAuto } from './auto.js';
 import * as oauth from './oauth.js';
 import { handleMcpPost } from './mcp.js';
+import { applyConfig, submitApply, collectFiles } from './apply.js';
 import { listLeads, leadStats, importLeads, actLead, syncMeta, fromSheetRow, classifyProduct } from './leads.js';
 
 const DAILY_CRON = '0 21 * * *';
@@ -94,6 +96,19 @@ export async function handle(request, env, deps = {}) {
       return handleMcpPost(request, () => ({ db: deps.db || restDb({ projectId: env.FIREBASE_PROJECT, saKey: env.GCP_SA_KEY }), email: who.email, nowMs, env, fetchFn: deps.fetchFn }));
     }
     if (!path.startsWith('/api/')) return json({ ok: false, error: '없는 주소입니다' }, 404, cors);
+
+    // ── 🏅 ISO 온라인 접수(공개 — 로그인 없음). 업체가 iso-one 접수 화면에서 부른다 ──
+    if (path === '/api/apply/config' && request.method === 'GET') return json(applyConfig(env), 200, cors);
+    if (path === '/api/apply' && request.method === 'POST') {
+      const len = Number(request.headers.get('content-length') || 0);
+      if (len > 45 * 1024 * 1024) throw new RuleError('첨부 파일은 모두 합쳐 40MB까지입니다');
+      const form = await request.formData().catch(() => { throw new RuleError('접수 내용을 읽지 못했습니다. 화면을 새로 고친 뒤 다시 제출해 주세요'); });
+      let data;
+      try { data = JSON.parse(String(form.get('data') || '')); } catch { throw new RuleError('접수 내용을 읽지 못했습니다. 화면을 새로 고친 뒤 다시 제출해 주세요'); }
+      const files = await collectFiles(form);
+      const db = deps.db || restDb({ projectId: env.FIREBASE_PROJECT, saKey: env.GCP_SA_KEY });
+      return json(await submitApply(env, { data, files }, { db, fetchFn: deps.fetchFn || fetch, nowMs, ip: request.headers.get('cf-connecting-ip') || '' }), 200, cors);
+    }
 
     const actor = await authenticate(request, env, { fetchFn: deps.fetchFn, nowMs });
     const db = deps.db || restDb({ projectId: env.FIREBASE_PROJECT, saKey: env.GCP_SA_KEY });

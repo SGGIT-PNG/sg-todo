@@ -57,18 +57,20 @@ function pemToDer(pem) {
   for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
   return u.buffer;
 }
-let tokenCache = { token: '', exp: 0, email: '' };
-export async function accessToken(saKeyJson, fetchFn = fetch, nowMs = Date.now()) {
+// 범위(scope)마다 따로 보관 — Firestore(기본)·드라이브(ISO 접수 첨부)
+const tokenCache = {};
+export async function accessToken(saKeyJson, fetchFn = fetch, nowMs = Date.now(), scope = SCOPE) {
   let sa = saKeyJson;
   if (typeof sa === 'string') {
     if (!sa.trim()) throw new Error('서비스 계정 키(GCP_SA_KEY)가 설정되지 않았습니다');
     try { sa = JSON.parse(sa); } catch { throw new Error('서비스 계정 키(GCP_SA_KEY)가 JSON 형식이 아닙니다 — 키 파일 내용 전체를 넣었는지 확인'); }
   }
   if (!sa || !sa.client_email || !sa.private_key) throw new Error('서비스 계정 키(GCP_SA_KEY)가 설정되지 않았습니다');
-  if (tokenCache.token && tokenCache.email === sa.client_email && nowMs < tokenCache.exp - 60000) return tokenCache.token;
+  const tc = tokenCache[scope];
+  if (tc && tc.token && tc.email === sa.client_email && nowMs < tc.exp - 60000) return tc.token;
   const iat = Math.floor(nowMs / 1000);
   const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-  const claim = b64url(JSON.stringify({ iss: sa.client_email, scope: SCOPE, aud: TOKEN_URL, iat, exp: iat + 3600 }));
+  const claim = b64url(JSON.stringify({ iss: sa.client_email, scope, aud: TOKEN_URL, iat, exp: iat + 3600 }));
   const key = await crypto.subtle.importKey('pkcs8', pemToDer(sa.private_key),
     { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(header + '.' + claim));
@@ -79,7 +81,7 @@ export async function accessToken(saKeyJson, fetchFn = fetch, nowMs = Date.now()
   });
   const j = await r.json();
   if (!r.ok || !j.access_token) throw new Error('서비스 계정 토큰 발급 실패: ' + (j.error_description || j.error || r.status));
-  tokenCache = { token: j.access_token, exp: nowMs + (j.expires_in || 3600) * 1000, email: sa.client_email };
+  tokenCache[scope] = { token: j.access_token, exp: nowMs + (j.expires_in || 3600) * 1000, email: sa.client_email };
   return j.access_token;
 }
 
