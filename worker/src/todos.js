@@ -194,6 +194,7 @@ export function present(t, rules, nowMs) {
     priority: t.priority || '', waitingFor: t.waitingFor || '', memo: t.memo || '', source: t.source || '',
     createdBy: t.createdBy || '', repeat: t.repeat || null, callTime: t.callTime || '',
     col: b.col, days: b.days, alert: b.alert, tags: b.tags, reason: b.reason,
+    holdKind: b.col === 'hold' ? b.holdKind : '',
   };
 }
 // 진행 업무 정렬: 긴급 → 빨간 표시(마감 지남·오래 끈 일) → 마감 가까운 순 → 오래된 순
@@ -211,7 +212,7 @@ export function sortIdea(a, b) {
 }
 // 장기 대기 정렬: 긴급 → 오래 기다린 순
 export function sortHold(a, b) {
-  return ((b.priority === 'high') - (a.priority === 'high')) || (b.days - a.days) || ((a.no || 0) - (b.no || 0));
+  return ((a.holdKind === 'reply' ? 0 : 1) - (b.holdKind === 'reply' ? 0 : 1)) || ((b.priority === 'high') - (a.priority === 'high')) || (b.days - a.days) || ((a.no || 0) - (b.no || 0));
 }
 // 통화 정렬: 날짜 → 시각(시간 미정은 그날 맨 뒤) → 번호
 export function sortCall(a, b) {

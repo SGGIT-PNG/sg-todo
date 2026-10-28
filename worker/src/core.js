@@ -11,8 +11,13 @@ export const STATUS_LABEL = { wait: '진행', ing: '진행', waiting: '기다리
 //     등록한 날로 저절로 채우지 않고, 날짜가 와도 제안 칸에 머물며, 종료일이 지나도 빨간 표시 없이 회색 「종료일 지남」
 //   + 📞 통화(kind call, 2026-10-12): 업무가 아니라 「언제 몇 시에 누구에게 전화」. 날짜 = 시작일, 시각 = callTime.
 //     진행·예정 업무 칸에는 안 나오고 통화 칸에만. 날짜가 지났는데 안 한 통화는 놓친 통화(빨간 표시)
-//   + ⏸ 장기 대기(status hold, 2026-10-28 사장님): 오래 기다려야 하는 일을 진행 업무에서 빼 두는 칸. 사람이 넘길 때만 들어가고
+//   + ⏸ 장기 대기(status hold, 2026-10-28 사장님): ① 업체에 요청하고 회신을 오래 기다리는 일 ② 당장은 아니지만 꼭 처리할 내부 일 — 진행 업무에서 빼 두는 칸(사장님 정의). 사람이 넘길 때만 들어가고
 //     빨간 표시(오래 끈 일·마감 지남) 없이 「대기 N일째」만. 다시 맡으면(wait·ing·waiting) 시작일을 따로 안 주면 오늘부터 진행
+//     장기 대기는 두 가지(holdKind, 2026-10-28): reply = 📨 업체 회신 대기(공이 업체 쪽) · internal = 🗂 내부 장기 대기(우리가 언젠가 할 일)
+//     안 정했으면 「무엇을 기다리나」(waitingFor)가 있으면 업체 회신, 없으면 내부
+export const HOLD_KINDS = ['reply', 'internal'];
+export const HOLD_LABEL = { reply: '📨 업체 회신 대기', internal: '🗂 내부 장기 대기' };
+export function holdKindOf(t) { return HOLD_KINDS.includes(t && t.holdKind) ? t.holdKind : (t && t.waitingFor ? 'reply' : 'internal'); }
 export const COLS = ['call', 'ing', 'todo', 'hold', 'idea', 'done'];
 export const COL_LABEL = { call: '📞 통화', ing: '진행 업무', todo: '예정 업무', hold: '장기 대기', idea: '제안 업무', done: '완료 업무', trash: '휴지통' };
 export const KINDS = ['call', 'doc', 'apply', 'visit', 'chase', 'internal'];
@@ -41,7 +46,7 @@ export const RULES_DEFAULT = { stallDays: 14, soonDays: 3, horizonDays: 30, lead
 export const TRASH_DAYS = 30;
 
 // 사람이 바꿀 수 있는 칸 (그 외 no·createdAt·source 등은 창구만 정한다)
-export const EDITABLE = ['text', 'status', 'startDate', 'dueDate', 'waitingFor', 'bizno', 'companyName', 'category',
+export const EDITABLE = ['text', 'status', 'holdKind', 'startDate', 'dueDate', 'waitingFor', 'bizno', 'companyName', 'category',
   'kind', 'callTime', 'priority', 'assignee', 'memo', 'tag', 'repeat'];
 // 바뀌면 「손댄 것」으로 보는 칸 — 멈춤 판정 기준 statusAt 갱신 (CRM 기존 규칙과 같음)
 const TOUCH_FIELDS = ['status', 'startDate', 'dueDate', 'memo', 'waitingFor'];
@@ -233,6 +238,11 @@ export function cleanPatch(patch, { nowMs = Date.now(), creating = false } = {})
     if (!STATUSES.includes(patch.status)) throw new RuleError('상태는 ' + STATUSES.join('·') + ' 중 하나입니다');
     out.status = patch.status;
   }
+  if ('holdKind' in patch) {
+    const hk = { 업체: 'reply', 회신: 'reply', '업체 회신': 'reply', 내부: 'internal' }[String(patch.holdKind || '').trim()] || patch.holdKind || '';
+    if (hk && !HOLD_KINDS.includes(hk)) throw new RuleError('장기 대기 종류는 reply(업체 회신 대기)·internal(내부 장기 대기) 중 하나입니다');
+    out.holdKind = hk;
+  }
   const dueIn = 'due' in patch ? patch.due : patch.dueDate;
   if ('due' in patch || 'dueDate' in patch) out.dueDate = parseDue(dueIn ?? '', nowMs);
   // 시작일 — 이 날이 오면 「진행 업무」로 옮겨 간다. 빈 값('')은 「비움」 — 제안 업무면 비워 두고, 아니면 applyChange·newTodo가 오늘로 채운다
@@ -303,7 +313,7 @@ export function applyChange(old, upd, actor, nowMs = Date.now()) {
   }
   if ('status' in next) {
     if (next.status === 'hold') next.holdAt = nowMs;   // 대기 시작한 때 — 메모를 고쳐도 「대기 N일째」가 다시 0이 되지 않게
-    else if (old && old.status === 'hold') next.holdAt = null;
+    else if (old && old.status === 'hold') { next.holdAt = null; if (old.holdKind) next.holdKind = null; }
     if (old && old.status === 'idea' && (next.status === 'done' || next.status === 'cancel')) next.fromIdea = true;
     else if (old && old.fromIdea && next.status !== 'done' && next.status !== 'cancel') next.fromIdea = null;
   }
@@ -361,9 +371,11 @@ export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
     const since = t.holdAt || touchedAt(t);
     const d = since ? daysBetween(kstToday(since), today) : 0;
     if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });
+    const hk = holdKindOf(t);
     if (t.waitingFor) tags.push({ t: '⏳ ' + t.waitingFor, tone: 'wait' });
     if (due) tags.push({ t: (dleft < 0 ? '마감 지남 ' : '마감 ') + due.slice(5).replace('-', '/'), tone: 'mute' });
-    return { col: 'hold', days: d, alert: false, tags, reason: [d === 0 ? '오늘 대기 시작' : '대기 ' + d + '일째'].concat(tags.map(x => x.t)).join(' · ') };
+    const head = hk === 'reply' ? (d === 0 ? '오늘 요청' : '요청 ' + d + '일째') : (d === 0 ? '오늘 대기 시작' : '대기 ' + d + '일째');
+    return { col: 'hold', holdKind: hk, days: d, alert: false, tags, reason: [head].concat(tags.map(x => x.t)).join(' · ') };
   }
   if (t.kind === 'call' && t.status !== 'idea') {   // 📞 통화 — 날짜(시작일)·시각만 본다. 날짜 지났는데 안 했으면 놓친 통화
     const d = start;
