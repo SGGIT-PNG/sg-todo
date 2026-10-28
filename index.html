@@ -10,7 +10,7 @@
   --bg:#F4F6FA; --surface:#FFFFFF; --surface2:#F8FAFC; --border:#E2E8F0; --border2:#CBD5E1;
   --text:#0F172A; --text2:#334155; --text3:#64748B; --text4:#94A3B8;
   --navy:#1B2B4B; --primary:#2563EB; --danger:#DC2626; --ok:#059669;
-  --ing:#EA580C; --todo:#2563EB; --waiting:#7C3AED; --idea:#0D9488; --call:#0891B2;
+  --ing:#EA580C; --todo:#2563EB; --waiting:#7C3AED; --idea:#0D9488; --call:#0891B2; --hold:#64748B;
   --radius:10px; --shadow:0 1px 3px rgba(15,23,42,.08);
 }
 *{box-sizing:border-box}
@@ -72,6 +72,7 @@ main{max-width:1180px;margin:0 auto;padding:14px 16px 80px;display:grid;grid-tem
 .days.todo{color:var(--todo)}
 .days.done{color:var(--ok)}
 .days.idea{color:var(--idea)}
+.days.hold{color:var(--hold)}
 .days.call{color:var(--call)}
 .days.call.alert{color:var(--danger)}
 .sec.c-call>h2{border-left:4px solid var(--call)}
@@ -113,6 +114,7 @@ main{max-width:1180px;margin:0 auto;padding:14px 16px 80px;display:grid;grid-tem
 .ld-row.alert .why{color:var(--danger)}
 .counts div.lead{cursor:pointer;border-color:#FBCFE8;background:#FDF2F8}
 .sec.c-idea>h2{border-left:4px solid var(--idea)}
+.sec.c-hold>h2{border-left:4px solid var(--hold)}
 .sec.c-ing>h2{border-left:4px solid var(--ing)}
 .sec.c-todo>h2{border-left:4px solid var(--todo)}
 .sec.c-done>h2,.sec.c-done summary{border-left:4px solid var(--ok)}
@@ -178,7 +180,7 @@ table.mig td,table.mig th{border-bottom:1px solid var(--border);padding:5px 6px;
   --bg:#0B1222; --surface:rgba(255,255,255,.055); --surface2:rgba(255,255,255,.035); --border:rgba(255,255,255,.10); --border2:rgba(255,255,255,.22);
   --text:#EEF2F8; --text2:#C3CDE0; --text3:#9AA7BF; --text4:#6F7B92;
   --primary:#4DABF7; --danger:#FF6B5E; --ok:#51CF66;
-  --ing:#FF922B; --todo:#74C0FC; --waiting:#B197FC; --idea:#38D9A9; --call:#3BC9DB;
+  --ing:#FF922B; --todo:#74C0FC; --waiting:#B197FC; --idea:#38D9A9; --call:#3BC9DB; --hold:#ADB5BD;
   --radius:18px; --shadow:0 14px 34px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.06);
 }
 html{color-scheme:dark}   /* 날짜 칸·선택 상자 같은 기본 부품도 어둡게 */
@@ -221,6 +223,7 @@ main{max-width:1760px;padding:20px 24px 80px;gap:22px;grid-template-columns:minm
 .sec.c-ing>h2{border-left-color:var(--ing);background:linear-gradient(90deg,rgba(255,146,43,.24),rgba(255,146,43,.04));color:#FFC078}
 .sec.c-todo>h2{border-left-color:var(--todo);background:linear-gradient(90deg,rgba(116,192,252,.22),rgba(116,192,252,.04));color:#A5D8FF}
 .sec.c-idea>h2{border-left-color:var(--idea);background:linear-gradient(90deg,rgba(56,217,169,.2),rgba(56,217,169,.04));color:#96F2D7}
+.sec.c-hold>h2{border-left-color:var(--hold);background:linear-gradient(90deg,rgba(173,181,189,.18),rgba(173,181,189,.03));color:#DEE2E6}
 .sec.c-done>h2,.sec.c-done summary{border-left:6px solid var(--ok);background:linear-gradient(90deg,rgba(81,207,102,.18),rgba(81,207,102,.03));color:#B2F2BB}
 .sec.c-lead>h2{border-left-color:#F06595;background:linear-gradient(90deg,rgba(240,101,149,.24),rgba(240,101,149,.04));color:#FCC2D7}
 .sec details>summary{color:var(--text2);padding:12px 16px}
@@ -472,10 +475,7 @@ function setMe(n) { me = n; ls.set(LS.me, n); renderMe(); closeModal(); toast('�
 // ── 공통 ──
 const live = () => todos.filter(t => !t.deletedAt);
 const label = t => t.no ? core.noLabel(t.no) : '';
-function textOf(t) {   // 글 앞의 [기업명]은 기업 칩과 겹치므로 뺀다
-  const x = String(t.text || '');
-  return t.companyName && /^\[[^\]]+\]\s*/.test(x) ? x.replace(/^\[[^\]]+\]\s*/, '') : x;
-}
+const textOf = t => core.taskText(t);   // 업무 먼저, 회사는 🏢 칩 — 글 앞의 [회사명]·회사 이름은 칩과 겹치므로 뗀다(2026-10-28)
 const shortCo = n => String(n || '').replace(/주식회사\s*|\(주\)\s*|㈜\s*/g, '').trim();
 const md = ds => ds ? ds.slice(5).replace('-', '/') : '';
 const doneDay = t => t.doneAt ? core.kstToday(t.doneAt) : '';
@@ -484,6 +484,7 @@ function withBucket(list) { const n = now(); return list.map(t => Object.assign(
 const sortIng = (a, b) => ((b.priority === 'high') - (a.priority === 'high')) || (b._b.alert - a._b.alert)
   || (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || (b._b.days - a._b.days) || ((a.no || 0) - (b.no || 0));
 const sortTodo = (a, b) => a._start.localeCompare(b._start) || ((b.priority === 'high') - (a.priority === 'high')) || ((a.no || 0) - (b.no || 0));
+const sortHold = (a, b) => ((b.priority === 'high') - (a.priority === 'high')) || (b._b.days - a._b.days) || ((a.no || 0) - (b.no || 0));   // 장기 대기: 긴급 → 오래 기다린 순
 const sortIdea = (a, b) => ((b.priority === 'high') - (a.priority === 'high')) || (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || (b._b.days - a._b.days) || ((a.no || 0) - (b.no || 0));
 // 통화: 날짜 → 시각 있는 것 먼저 → 시각 순
 const sortCall = (a, b) => a._start.localeCompare(b._start) || ((a.callTime ? 0 : 1) - (b.callTime ? 0 : 1)) || (a.callTime || '').localeCompare(b.callTime || '') || ((a.no || 0) - (b.no || 0));
@@ -501,6 +502,7 @@ function rowHtml(t, _i, noCat) {   // noCat: 분야별로 묶인 곳에서는 �
   else if (b.col === 'todo') head = '<span class="days todo">' + core.dayTag('todo', b.days) + '</span><span style="color:var(--text3)">' + md(t._start || core.startOf(t)) + ' 시작</span>';
   else if (b.col === 'call') head = '<span class="days call' + (b.alert ? ' alert' : '') + '">📞 ' + (b.alert ? '놓친 통화 ' + md(t._start || core.startOf(t)) : b.days === 0 ? '오늘' : b.days === 1 ? '내일' : md(t._start || core.startOf(t))) + ' ' + (t.callTime ? esc(t.callTime) : '시간 미정') + '</span>';
   else if (b.col === 'idea') head = '<span class="days idea">💡 제안</span><span style="color:var(--text4)">' + (b.days === 0 ? '오늘 등록' : '등록 ' + b.days + '일 전') + '</span>';
+  else if (b.col === 'hold') head = '<span class="days hold">⏸ ' + (b.days === 0 ? '오늘 대기 시작' : '대기 ' + b.days + '일째') + '</span>';
   else if (done && t.status !== 'cancel') head = '<span class="days done">' + (doneDay(t) ? md(doneDay(t)) + ' 완료' : '완료') + '</span>';
   if (t.companyName) chips.push('<span class="chip co">🏢 ' + esc(shortCo(t.companyName)) + '</span>');
   (b.tags || []).filter(x => !(b.col === 'call' && x.t === '놓친 통화')).forEach(x => chips.push('<span class="chip ' + (TONE[x.tone] || '') + '">' + esc(x.t) + '</span>'));
@@ -514,12 +516,14 @@ function rowHtml(t, _i, noCat) {   // noCat: 분야별로 묶인 곳에서는 �
     acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'ing\')" title="제안해서 맡게 됨 — 오늘부터 진행 업무">지금 시작</button>';
     acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'adopt\')" title="시작할 날을 정해 예정 업무로">날짜 정해 시작</button>';
   }
+  else if (b.col === 'hold') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'ing\')" title="장기 대기를 끝내고 오늘부터 진행 업무">다시 진행</button>';
   else if (!done) {
     if (b.col === 'call') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'recall\')" title="통화 날짜·시각 바꾸기">다시 잡기</button>';
     else if (b.col === 'todo') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'ing\')" title="시작일을 오늘로">지금 시작</button>';
     else if (t.status === 'waiting') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'ing\')">기다림 끝</button>';
     else acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'waiting\')">기다림</button>';
     if (b.col !== 'call') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'postpone\')" title="시작일 미루기">미루기</button>';
+    if (b.col !== 'call') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'hold\')" title="오래 기다려야 하는 일 — 진행 업무에서 빼서 장기 대기 칸으로">장기 대기</button>';
   }
   const click = numbered && !trash ? 'onclick="openTask(\'' + id + '\')"' : 'onclick="openEdit(\'' + id + '\')"';
   return '<div class="row' + (b.alert ? ' alert' : '') + (t.priority === 'high' && !done ? ' urgent' : '') + (done ? ' done' : '') + '">'
@@ -582,9 +586,9 @@ function render() {
   if (!started) return;
   const el = document.getElementById('view');
   const all = withBucket(live());
-  const g = { call: [], ing: [], todo: [], idea: [], done: [] };
+  const g = { call: [], ing: [], todo: [], hold: [], idea: [], done: [] };
   all.forEach(t => (g[t._b.col] || g.done).push(t));
-  g.call.sort(sortCall); g.ing.sort(sortIng); g.todo.sort(sortTodo); g.idea.sort(sortIdea); g.done.sort(sortDone);
+  g.call.sort(sortCall); g.ing.sort(sortIng); g.todo.sort(sortTodo); g.idea.sort(sortIdea); g.hold.sort(sortHold); g.done.sort(sortDone);
   const today = core.kstToday();
   const recent = g.done.filter(t => doneDay(t) >= core.addDays(today, -6));
   const alerts = g.ing.filter(t => t._b.alert).length + g.todo.filter(t => t._b.alert).length;
@@ -596,6 +600,7 @@ function render() {
     + '<div><b style="color:var(--ing)">' + g.ing.length + '</b><span>진행 업무</span></div>'
     + '<div><b style="color:var(--todo)">' + g.todo.length + '</b><span>예정 업무</span></div>'
     + '<div><b style="color:var(--idea)">' + g.idea.length + '</b><span>💡 제안 업무</span></div>'
+    + '<div><b style="color:var(--hold)">' + g.hold.length + '</b><span>⏸ 장기 대기</span></div>'
     + '<div><b style="color:var(--ok)">' + recent.length + '</b><span>최근 7일 완료</span></div>'
     + '<div><b style="color:' + (alerts ? 'var(--danger)' : 'var(--text4)') + '">' + alerts + '</b><span>마감 지남·오래 끈 일</span></div></div>';
   const unnumbered = todos.filter(t => !t.no).length;
@@ -613,10 +618,11 @@ function render() {
         + section('💡 제안 업무', '업체가 맡기기 전, 우리가 먼저 제안할 일 · 맡게 되면 「지금 시작」', g.idea, true, 'c-idea', true)
       + '</div>'
       + '<div class="bcol bcol3">'
+        + section('⏸ 장기 대기', '오래 기다려야 해서 진행 업무에서 빼 둔 일 · 빨간 표시 없음 · 다시 맡으면 「다시 진행」', g.hold, true, 'c-hold', true)
         + section('✅ 완료 업무', '최근 7일 · 전체는 「완료·휴지통」', recent, recent.length <= 8, 'c-done')
       + '</div></div>';
   } else if (view === 'company') {
-    const open = all.filter(t => ['call', 'ing', 'todo', 'idea'].includes(t._b.col));   // 기업별에는 통화·제안거리도 같이
+    const open = all.filter(t => ['call', 'ing', 'todo', 'hold', 'idea'].includes(t._b.col));   // 기업별에는 통화·제안거리도 같이
     const groups = {};
     open.forEach(t => { const k = t.bizno || '_none'; (groups[k] = groups[k] || []).push(t); });
     const alertN = k => groups[k].filter(t => t._b.alert).length;
@@ -824,6 +830,10 @@ async function act(id, what) {
   try {
     if (what === 'reopen') { const r = await api('PATCH', '/api/todos/' + L, { status: 'wait' }); toast(L + (r.todo && r.todo.status === 'idea' ? ' 💡 제안 업무로 되돌림' : ' 다시 열림')); closeModal(); }   // 제안이었던 일은 창구가 제안으로 되돌린다
     else if (what === 'ing') { await api('PATCH', '/api/todos/' + L, { status: 'ing' }); toast(L + ' 진행 업무로'); closeModal(); }
+    else if (what === 'hold') {   // ⏸ 장기 대기로 넘김 (2026-10-28) — 무엇을 기다리는지는 선택
+      const w = prompt(L + ' 장기 대기로 넘깁니다. 무엇을 기다리나요? (선택 — 예: 정부 공고, 업체 결정)', t.waitingFor || ''); if (w === null) return;
+      await api('PATCH', '/api/todos/' + L, Object.assign({ status: 'hold' }, w.trim() ? { waitingFor: w.trim() } : {})); toast(L + ' ⏸ 장기 대기로'); closeModal();
+    }
     else if (what === 'adopt') {   // 제안 → 날짜 정해 시작
       const d = prompt('언제부터 시작하나요? (예: 10/20, 내일, +7 · 오늘이면 「오늘」)', t.startDate && t.startDate > core.kstToday() ? t.startDate : '내일'); if (d === null) return;
       const r = await api('PATCH', '/api/todos/' + L, { status: 'wait', start: d });
@@ -871,6 +881,7 @@ function openTask(id) {
     + '<div class="foot">'
       + '<button class="btn" onclick="openEdit(\'' + esc(t._id) + '\')">✏️ 고치기</button>'
       + (done ? '<button class="btn" onclick="act(\'' + esc(t._id) + '\',\'reopen\')">다시 열기</button>' : '')
+      + (b.col === 'hold' ? '<button class="btn" onclick="act(\'' + esc(t._id) + '\',\'ing\')">▶ 다시 진행</button>' : b.col === 'ing' || b.col === 'todo' ? '<button class="btn" onclick="act(\'' + esc(t._id) + '\',\'hold\')">⏸ 장기 대기로</button>' : '')
       + '<span class="sp"></span><button class="btn" onclick="closeModal()">닫기</button>'
       + (t.status === 'cancel' ? '' : '<button class="btn primary" onclick="submitDone(\'' + esc(t._id) + '\')">' + (done ? '완료일 저장' : '완료') + '</button>')
     + '</div>');
@@ -973,10 +984,10 @@ function openEdit(id) {
     + '</div>'
     + '<div class="grid2">'
       + '<div class="fg"><label>상태</label><select id="f-status" onchange="fStatusChange(this.value)">'
-        + opt([['wait', '진행'], ['waiting', '⏳ 기다리는 중'], ['idea', '💡 제안 (아직 안 맡음)']].concat(t ? [['done', '완료'], ['cancel', '취소(안 하기로 함)']] : []), t ? (t.status === 'ing' ? 'wait' : t.status) : 'wait') + '</select></div>'
+        + opt([['wait', '진행'], ['waiting', '⏳ 기다리는 중'], ['hold', '⏸ 장기 대기'], ['idea', '💡 제안 (아직 안 맡음)']].concat(t ? [['done', '완료'], ['cancel', '취소(안 하기로 함)']] : []), t ? (t.status === 'ing' ? 'wait' : t.status) : 'wait') + '</select></div>'
       + '<div class="fg"><label>&nbsp;</label><label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--text)"><input type="checkbox" id="f-hi" style="width:auto"' + (t && t.priority === 'high' ? ' checked' : '') + '> <span style="color:#DC2626">★</span> 긴급</label></div>'
     + '</div>'
-    + '<div class="fg' + (t && t.status === 'waiting' ? '' : ' hidden') + '"><label>무엇을 기다리나</label><input id="f-wf" value="' + v('waitingFor') + '" placeholder="예: 서류 회신"></div>'
+    + '<div class="fg' + (t && (t.status === 'waiting' || t.status === 'hold') ? '' : ' hidden') + '"><label>무엇을 기다리나</label><input id="f-wf" value="' + v('waitingFor') + '" placeholder="예: 서류 회신"></div>'
     + '<div class="grid2">'
       + '<div class="fg"><label>종류</label><select id="f-kind"><option value="">—</option>' + opt(core.KINDS.map(k => [k, core.KIND_LABEL[k]]), t && t.kind) + '</select></div>'
       + '<div class="fg"><label>업무 분야</label><select id="f-cat"><option value="">—</option>' + opt(Object.entries(CATS), t && t.category) + '</select></div>'
@@ -1007,7 +1018,7 @@ function dateLabels(idea) {
   return idea ? ['시작일 (선택 · 와도 제안 칸 유지)', '종료일 (선택)'] : ['시작일 — 이 날부터 「진행 업무」', '마감 (선택)'];
 }
 function fStatusChange(v) {
-  document.getElementById('f-wf').closest('.fg').classList.toggle('hidden', v !== 'waiting');
+  document.getElementById('f-wf').closest('.fg').classList.toggle('hidden', v !== 'waiting' && v !== 'hold');
   const l = dateLabels(v === 'idea');
   document.getElementById('f-start-l').textContent = l[0]; document.getElementById('f-due-l').textContent = l[1];
   const st = document.getElementById('f-start');

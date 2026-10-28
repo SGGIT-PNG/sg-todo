@@ -2,8 +2,8 @@
 // 쓰기 창구(Worker)와 할 일 웹 화면이 같은 규칙을 쓰도록 이 파일 하나에 모은다.
 // 설계: sgcrm/TODO_ARCHITECTURE.md §3
 
-export const STATUSES = ['wait', 'ing', 'waiting', 'idea', 'done', 'cancel'];
-export const STATUS_LABEL = { wait: '진행', ing: '진행', waiting: '기다리는 중', idea: '제안', done: '완료', cancel: '취소' };
+export const STATUSES = ['wait', 'ing', 'waiting', 'hold', 'idea', 'done', 'cancel'];
+export const STATUS_LABEL = { wait: '진행', ing: '진행', waiting: '기다리는 중', hold: '장기 대기', idea: '제안', done: '완료', cancel: '취소' };
 // 칸 — 시작일이 오면 진행 업무, 아직이면 예정 업무, 끝나면 완료 (2026-10-11 사장님 지시)
 //   + 제안 업무(status idea): 업체와 상관없이 우리가 먼저 제안하려는 일. 시작일과 상관없이 이 칸에 머물고,
 //     실제로 맡으면(status ing/wait) 하고 있는·예정 업무로 옮겨 간다
@@ -11,8 +11,10 @@ export const STATUS_LABEL = { wait: '진행', ing: '진행', waiting: '기다리
 //     등록한 날로 저절로 채우지 않고, 날짜가 와도 제안 칸에 머물며, 종료일이 지나도 빨간 표시 없이 회색 「종료일 지남」
 //   + 📞 통화(kind call, 2026-10-12): 업무가 아니라 「언제 몇 시에 누구에게 전화」. 날짜 = 시작일, 시각 = callTime.
 //     진행·예정 업무 칸에는 안 나오고 통화 칸에만. 날짜가 지났는데 안 한 통화는 놓친 통화(빨간 표시)
-export const COLS = ['call', 'ing', 'todo', 'idea', 'done'];
-export const COL_LABEL = { call: '📞 통화', ing: '진행 업무', todo: '예정 업무', idea: '제안 업무', done: '완료 업무', trash: '휴지통' };
+//   + ⏸ 장기 대기(status hold, 2026-10-28 사장님): 오래 기다려야 하는 일을 진행 업무에서 빼 두는 칸. 사람이 넘길 때만 들어가고
+//     빨간 표시(오래 끈 일·마감 지남) 없이 「대기 N일째」만. 다시 맡으면(wait·ing·waiting) 시작일을 따로 안 주면 오늘부터 진행
+export const COLS = ['call', 'ing', 'todo', 'hold', 'idea', 'done'];
+export const COL_LABEL = { call: '📞 통화', ing: '진행 업무', todo: '예정 업무', hold: '장기 대기', idea: '제안 업무', done: '완료 업무', trash: '휴지통' };
 export const KINDS = ['call', 'doc', 'apply', 'visit', 'chase', 'internal'];
 export const KIND_LABEL = { call: '전화', doc: '서류', apply: '신청', visit: '방문', chase: '독촉', internal: '내부' };
 // 업무 분야(중분류) — SGCRM DEFAULT_CAT_META와 같은 id. 화면은 칸 안을 이 순서로 묶는다 (2026-10-12)
@@ -290,12 +292,18 @@ export function applyChange(old, upd, actor, nowMs = Date.now()) {
       next.startDate = today; changes.startDate = [old.startDate, today];
     }
     // 제안 → 실제 업무: 시작일을 따로 주지 않으면 — 「지금 시작」(ing)은 오늘부터, 그 밖에는 제안에 적어 둔 시작일(없으면 오늘)
+    // 장기 대기 → 다시 맡음: 시작일을 따로 주지 않으면 오늘부터(대기 전 시작일로 「+40일」처럼 보이지 않게)
+    if (old && old.status === 'hold' && ['wait', 'ing', 'waiting'].includes(next.status) && !('startDate' in upd) && !('startDate' in next) && (old.startDate || '') < today) {
+      next.startDate = today; changes.startDate = [old.startDate || null, today];
+    }
     if (old && old.status === 'idea' && ['wait', 'ing', 'waiting'].includes(next.status) && !('startDate' in upd) && !('startDate' in next)) {
       const s = next.status === 'ing' || !old.startDate ? today : old.startDate;
       if ((old.startDate || '') !== s) { next.startDate = s; changes.startDate = [old.startDate || null, s]; }
     }
   }
   if ('status' in next) {
+    if (next.status === 'hold') next.holdAt = nowMs;   // 대기 시작한 때 — 메모를 고쳐도 「대기 N일째」가 다시 0이 되지 않게
+    else if (old && old.status === 'hold') next.holdAt = null;
     if (old && old.status === 'idea' && (next.status === 'done' || next.status === 'cancel')) next.fromIdea = true;
     else if (old && old.fromIdea && next.status !== 'done' && next.status !== 'cancel') next.fromIdea = null;
   }
@@ -318,6 +326,7 @@ export function newTodo(fields, { no, source, sourceRef, actor, nowMs = Date.now
   doc.updatedBy = actor.name;
   doc.createdAt = nowMs; doc.updatedAt = nowMs; doc.statusAt = nowMs;
   if (doc.status === 'done') doc.doneAt = nowMs;
+  if (doc.status === 'hold') doc.holdAt = nowMs;   // 처음부터 장기 대기로 넣은 일
   if (doc.repeat) doc.seriesId = seriesId || noLabel(no);
   return doc;
 }
@@ -348,6 +357,14 @@ export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
   const start = startOf(t, nowMs);
   const due = t.dueDate || '';
   const dleft = due ? daysBetween(today, due) : null;
+  if (t.status === 'hold') {   // ⏸ 장기 대기 — 빨간 표시 없음. 대기에 들어간 날(statusAt)부터 며칠째인지만
+    const since = t.holdAt || touchedAt(t);
+    const d = since ? daysBetween(kstToday(since), today) : 0;
+    if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });
+    if (t.waitingFor) tags.push({ t: '⏳ ' + t.waitingFor, tone: 'wait' });
+    if (due) tags.push({ t: (dleft < 0 ? '마감 지남 ' : '마감 ') + due.slice(5).replace('-', '/'), tone: 'mute' });
+    return { col: 'hold', days: d, alert: false, tags, reason: [d === 0 ? '오늘 대기 시작' : '대기 ' + d + '일째'].concat(tags.map(x => x.t)).join(' · ') };
+  }
   if (t.kind === 'call' && t.status !== 'idea') {   // 📞 통화 — 날짜(시작일)·시각만 본다. 날짜 지났는데 안 했으면 놓친 통화
     const d = start;
     const when = (d === today ? '오늘' : d === addDays(today, 1) ? '내일' : d.slice(5).replace('-', '/')) + (t.callTime ? ' ' + t.callTime : ' 시간 미정');
@@ -380,6 +397,30 @@ export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
   if (days >= rules.stallDays) alert = true;     // 오래 끈 일
   const head = dayTag('ing', days);
   return { col: 'ing', days, alert, tags, reason: [head].concat(tags.map(x => x.t)).join(' · ') };
+}
+
+// 화면에 보일 업무 글 (2026-10-28 사장님: 「업무 먼저, 회사는 🏢 칩」으로 통일) — 저장된 글은 그대로, 보여 줄 때만
+//   회사가 연결된 업무면 글 맨 앞의 [회사명] 또는 회사 이름(주식회사·(주)·㈜·(유) 등 떼고, 띄어쓰기 달라도)을 뗀다.
+//   뒤에 바로 한글이 붙으면(「하이퍼다인에」) 떼지 않는다. 다 떼고 남는 글이 없으면 원래 글
+const CORP_RE = /주식회사|유한회사|농업회사법인|\(주\)|㈜|\(유\)|\(사\)|\(재\)/g;
+export function taskText(t) {
+  const x = String((t && t.text) || '').trim();
+  if (!t || !t.companyName) return x;
+  let y = x.replace(/^\[[^\]]+\]\s*/, '');
+  const base = String(t.companyName).replace(CORP_RE, ' ').replace(/\s+/g, ' ').trim();
+  if (base) {
+    const names = [base, base.replace(/\s/g, '')].concat(base.split(' ').filter(w => w.length >= 2));
+    const lead = y.match(/^(?:주식회사|\(주\)|㈜|\(유\)|유한회사)?\s*/)[0];
+    const body = y.slice(lead.length);
+    for (const n of names.sort((a, b) => b.length - a.length)) {
+      if (n.length < 2 || !body.toLowerCase().startsWith(n.toLowerCase())) continue;
+      const rest = body.slice(n.length);
+      if (/^[가-힣A-Za-z0-9]/.test(rest)) continue;   // 「하이퍼다인에」처럼 낱말이 이어지면 그대로
+      const z = rest.replace(/^\s*(?:주식회사|\(주\)|㈜)?\s*[·\-—:,/|]?\s*/, '');
+      if (z) { y = z; break; }
+    }
+  }
+  return y || x;
 }
 
 // 변동 기록 한 줄 요약
