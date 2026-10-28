@@ -470,12 +470,12 @@ test('⏸ 장기 대기 — 넘기면 장기 대기 칸·빨간 표시 없음, �
   assert.equal((await listTodos(db, { view: 'ing' }, NOW)).total, 0);
   t = (await listTodos(db, { view: 'hold' }, NOW)).items[0];
   assert.equal(t.col, 'hold'); assert.equal(t.alert, false);
-  assert.match(t.reason, /오늘 대기 시작/); assert.match(t.reason, /정부 공고/); assert.match(t.reason, /마감 지남/);
+  assert.match(t.reason, /오늘 요청/); assert.match(t.reason, /정부 공고/); assert.match(t.reason, /마감 지남/);
   assert.match(acts(db).at(-1).summary, /장기 대기/);
   // 열흘 뒤 메모를 고쳐도 「대기 N일째」는 대기 시작한 날 기준
   await updateTodo(ctxOf(db, '정석진', 'web', NOW + 10 * DAY), 'T-1', { memo: '공고 다음 달' });
   t = (await listTodos(db, { view: 'hold' }, NOW + 10 * DAY)).items[0];
-  assert.match(t.reason, /대기 10일째/);
+  assert.match(t.reason, /요청 10일째/);   // 기다리는 대상이 있으니 업체 회신 대기
   assert.equal((await listTodos(db, { view: 'all' }, NOW + 10 * DAY)).total, 1);   // 기업별 보기에는 들어감
   assert.equal((await listTodos(db, { view: 'open' }, NOW + 10 * DAY)).total, 0);  // 진행·예정 업무에는 안 들어감
   // 다시 진행 → 시작일 오늘, 진행 업무 「오늘 시작」
@@ -496,4 +496,20 @@ test('화면 글 — 업무 먼저, 회사 이름은 칩으로(글 앞의 회사
   assert.equal(tt('하이퍼다인에 연락', '주식회사 하이퍼다인'), '하이퍼다인에 연락');   // 낱말이 이어지면 그대로
   assert.equal(tt('청림테크', '청림테크'), '청림테크');                                // 다 떼면 남는 게 없으니 그대로
   assert.equal(tt('동우이엔지 · 반석 대신 자금조달', ''), '동우이엔지 · 반석 대신 자금조달');   // 회사 연결 없으면 그대로
+});
+
+test('⏸ 장기 대기 두 가지 — 업체 회신 대기 · 내부 장기 대기', async () => {
+  const db = seed();
+  await createTodo(ctxOf(db), { text: '메인비즈 서류 회신', company: '청림테크' });
+  await createTodo(ctxOf(db), { text: '홈페이지 회사 소개 고치기' });
+  await createTodo(ctxOf(db), { text: '옛 방식(종류 없이 기다리는 대상만)' });
+  await updateTodo(ctxOf(db), 'T-1', { status: 'hold', holdKind: 'reply', waitingFor: '서류 회신' });
+  await updateTodo(ctxOf(db), 'T-2', { status: 'hold', holdKind: '내부' });
+  await updateTodo(ctxOf(db), 'T-3', { status: 'hold', waitingFor: '기관 연락' });   // 종류가 없으면 기다리는 대상 있음 → 업체 회신
+  const rows = (await listTodos(db, { view: 'hold' }, NOW + 3 * DAY)).items;
+  assert.deepEqual(rows.map(r => [r.no, r.holdKind]), [[1, 'reply'], [3, 'reply'], [2, 'internal']]);   // 업체 회신 먼저
+  assert.match(rows[0].reason, /요청 3일째/); assert.match(rows[2].reason, /대기 3일째/);
+  await assert.rejects(updateTodo(ctxOf(db), 'T-2', { holdKind: 'xx' }), /장기 대기 종류/);
+  await updateTodo(ctxOf(db), 'T-1', { status: 'ing' });
+  assert.equal(db.store.get('todos/T-0001').holdKind, null);   // 다시 진행하면 종류도 지움
 });

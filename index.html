@@ -502,7 +502,7 @@ function rowHtml(t, _i, noCat) {   // noCat: 분야별로 묶인 곳에서는 �
   else if (b.col === 'todo') head = '<span class="days todo">' + core.dayTag('todo', b.days) + '</span><span style="color:var(--text3)">' + md(t._start || core.startOf(t)) + ' 시작</span>';
   else if (b.col === 'call') head = '<span class="days call' + (b.alert ? ' alert' : '') + '">📞 ' + (b.alert ? '놓친 통화 ' + md(t._start || core.startOf(t)) : b.days === 0 ? '오늘' : b.days === 1 ? '내일' : md(t._start || core.startOf(t))) + ' ' + (t.callTime ? esc(t.callTime) : '시간 미정') + '</span>';
   else if (b.col === 'idea') head = '<span class="days idea">💡 제안</span><span style="color:var(--text4)">' + (b.days === 0 ? '오늘 등록' : '등록 ' + b.days + '일 전') + '</span>';
-  else if (b.col === 'hold') head = '<span class="days hold">⏸ ' + (b.days === 0 ? '오늘 대기 시작' : '대기 ' + b.days + '일째') + '</span>';
+  else if (b.col === 'hold') head = '<span class="days hold">' + (b.holdKind === 'reply' ? '📨 ' + (b.days === 0 ? '오늘 요청' : '요청 ' + b.days + '일째') : '🗂 ' + (b.days === 0 ? '오늘 대기 시작' : '대기 ' + b.days + '일째')) + '</span>';
   else if (done && t.status !== 'cancel') head = '<span class="days done">' + (doneDay(t) ? md(doneDay(t)) + ' 완료' : '완료') + '</span>';
   if (t.companyName) chips.push('<span class="chip co">🏢 ' + esc(shortCo(t.companyName)) + '</span>');
   (b.tags || []).filter(x => !(b.col === 'call' && x.t === '놓친 통화')).forEach(x => chips.push('<span class="chip ' + (TONE[x.tone] || '') + '">' + esc(x.t) + '</span>'));
@@ -523,7 +523,7 @@ function rowHtml(t, _i, noCat) {   // noCat: 분야별로 묶인 곳에서는 �
     else if (t.status === 'waiting') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'ing\')">기다림 끝</button>';
     else acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'waiting\')">기다림</button>';
     if (b.col !== 'call') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'postpone\')" title="시작일 미루기">미루기</button>';
-    if (b.col !== 'call') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'hold\')" title="오래 기다려야 하는 일 — 진행 업무에서 빼서 장기 대기 칸으로">장기 대기</button>';
+    if (b.col !== 'call') acts += '<button class="btn sm" onclick="act(\'' + id + '\',\'hold\')" title="업체 회신을 오래 기다리는 일 · 당장은 아니지만 꼭 할 내부 일 — 진행 업무에서 빼서 장기 대기 칸으로">장기 대기</button>';
   }
   const click = numbered && !trash ? 'onclick="openTask(\'' + id + '\')"' : 'onclick="openEdit(\'' + id + '\')"';
   return '<div class="row' + (b.alert ? ' alert' : '') + (t.priority === 'high' && !done ? ' urgent' : '') + (done ? ' done' : '') + '">'
@@ -536,6 +536,11 @@ function rowHtml(t, _i, noCat) {   // noCat: 분야별로 묶인 곳에서는 �
 }
 // 칸 안을 업무 분야(중분류)로 묶는다 — 긴급(★) 묶음, 빨간 표시 묶음이 위, 나머지는 분야 순서. 묶음 안 순서는 그대로
 const CAT_ORDER = Object.fromEntries(core.CATEGORIES.map((c, i) => [c[0], i]));
+// 장기 대기 칸 안: 📨 업체 회신 대기 → 🗂 내부 장기 대기 (2026-10-28)
+function holdRows(list) {
+  return core.HOLD_KINDS.map(k => { const arr = list.filter(t => t._b.holdKind === k);
+    return arr.length ? '<div class="subhd">' + core.HOLD_LABEL[k] + '<span>' + arr.length + '</span></div>' + arr.map(t => rowHtml(t, 0, true)).join('') : ''; }).join('');
+}
 function groupedRows(list) {
   if (!list.length) return '<div class="empty">없습니다</div>';
   const groups = new Map();
@@ -572,7 +577,7 @@ function fitLeadRoll() {
   el.classList.toggle('still', half <= max + 1);
 }
 function section(title, sub, list, open = true, cls = '', grouped = false) {
-  const inner = !list.length ? '<div class="empty">없습니다</div>' : grouped ? groupedRows(list) : list.map(rowHtml).join('');
+  const inner = !list.length ? '<div class="empty">없습니다</div>' : grouped === 'hold' ? holdRows(list) : grouped ? groupedRows(list) : list.map(rowHtml).join('');
   if (!open) return '<div class="sec ' + cls + '"><details><summary>' + title + ' (' + list.length + ')' + (sub ? ' — ' + sub : '') + '</summary>' + inner + '</details></div>';
   return '<div class="sec ' + cls + '"><h2>' + title + (sub ? ' <small>' + sub + '</small>' : '') + '<span class="cnt">' + list.length + '</span></h2>' + inner + '</div>';
 }
@@ -618,7 +623,7 @@ function render() {
         + section('💡 제안 업무', '업체가 맡기기 전, 우리가 먼저 제안할 일 · 맡게 되면 「지금 시작」', g.idea, true, 'c-idea', true)
       + '</div>'
       + '<div class="bcol bcol3">'
-        + section('⏸ 장기 대기', '오래 기다려야 해서 진행 업무에서 빼 둔 일 · 빨간 표시 없음 · 다시 맡으면 「다시 진행」', g.hold, true, 'c-hold', true)
+        + section('⏸ 장기 대기', '📨 업체 회신 대기 · 🗂 내부 장기 대기 · 빨간 표시 없음 · 다시 맡으면 「다시 진행」', g.hold, true, 'c-hold', 'hold')
         + section('✅ 완료 업무', '최근 7일 · 전체는 「완료·휴지통」', recent, recent.length <= 8, 'c-done')
       + '</div></div>';
   } else if (view === 'company') {
@@ -830,10 +835,7 @@ async function act(id, what) {
   try {
     if (what === 'reopen') { const r = await api('PATCH', '/api/todos/' + L, { status: 'wait' }); toast(L + (r.todo && r.todo.status === 'idea' ? ' 💡 제안 업무로 되돌림' : ' 다시 열림')); closeModal(); }   // 제안이었던 일은 창구가 제안으로 되돌린다
     else if (what === 'ing') { await api('PATCH', '/api/todos/' + L, { status: 'ing' }); toast(L + ' 진행 업무로'); closeModal(); }
-    else if (what === 'hold') {   // ⏸ 장기 대기로 넘김 (2026-10-28) — 무엇을 기다리는지는 선택
-      const w = prompt(L + ' 장기 대기로 넘깁니다. 무엇을 기다리나요? (선택 — 예: 정부 공고, 업체 결정)', t.waitingFor || ''); if (w === null) return;
-      await api('PATCH', '/api/todos/' + L, Object.assign({ status: 'hold' }, w.trim() ? { waitingFor: w.trim() } : {})); toast(L + ' ⏸ 장기 대기로'); closeModal();
-    }
+    else if (what === 'hold') { openHold(t); return; }   // ⏸ 장기 대기로 넘김 — 업체 회신 대기·내부 장기 대기 고르는 창
     else if (what === 'adopt') {   // 제안 → 날짜 정해 시작
       const d = prompt('언제부터 시작하나요? (예: 10/20, 내일, +7 · 오늘이면 「오늘」)', t.startDate && t.startDate > core.kstToday() ? t.startDate : '내일'); if (d === null) return;
       const r = await api('PATCH', '/api/todos/' + L, { status: 'wait', start: d });
@@ -857,6 +859,27 @@ async function act(id, what) {
       const d = prompt('언제부터 할까요? 새 시작일 (예: 10/20, 내일, +7)', core.addDays(base, 1)); if (d === null) return;
       await api('PATCH', '/api/todos/' + L, { start: d }); toast(L + ' 미룸 → 예정 업무');
     }
+  } catch (e) { fail(e); }
+}
+
+// ⏸ 장기 대기로 넘기는 창 (2026-10-28 사장님: 업체 회신 대기 / 내부 장기 대기 두 가지)
+function openHold(t) {
+  const id = esc(t._id), L = core.noLabel(t.no);
+  openModal('<h3>⏸ 장기 대기로 넘기기</h3>'
+    + '<div class="task-head"><div class="t">' + esc(textOf(t)) + '</div><div class="meta">' + L + (t.companyName ? ' · 🏢 ' + esc(shortCo(t.companyName)) : '') + '</div></div>'
+    + '<div class="fg"><label>📨 업체 회신 대기 — 무엇을 기다리나요?</label><input id="h-wf" value="' + esc(t.waitingFor || '') + '" placeholder="예: 서류 회신, 업체 결정, 소진공 연락"></div>'
+    + '<div style="display:grid;gap:8px">'
+      + '<button class="btn block primary" onclick="holdTo(\'' + id + '\',\'reply\')">📨 업체 회신 대기 — 업체·기관에 요청하고 답을 기다림</button>'
+      + '<button class="btn block" onclick="holdTo(\'' + id + '\',\'internal\')">🗂 내부 장기 대기 — 당장은 아니지만 꼭 할 우리 일</button>'
+    + '</div>'
+    + '<div class="foot"><span class="sp"></span><button class="btn" onclick="closeModal()">닫기</button></div>');
+}
+async function holdTo(id, kind) {
+  const t = todos.find(x => x._id === id); if (!t || !t.no) return;
+  const L = core.noLabel(t.no), w = (document.getElementById('h-wf') || {}).value || '';
+  try {
+    await api('PATCH', '/api/todos/' + L, Object.assign({ status: 'hold', holdKind: kind }, kind === 'reply' && w.trim() ? { waitingFor: w.trim() } : {}));
+    toast(L + ' → ' + core.HOLD_LABEL[kind]); closeModal();
   } catch (e) { fail(e); }
 }
 
@@ -984,10 +1007,10 @@ function openEdit(id) {
     + '</div>'
     + '<div class="grid2">'
       + '<div class="fg"><label>상태</label><select id="f-status" onchange="fStatusChange(this.value)">'
-        + opt([['wait', '진행'], ['waiting', '⏳ 기다리는 중'], ['hold', '⏸ 장기 대기'], ['idea', '💡 제안 (아직 안 맡음)']].concat(t ? [['done', '완료'], ['cancel', '취소(안 하기로 함)']] : []), t ? (t.status === 'ing' ? 'wait' : t.status) : 'wait') + '</select></div>'
+        + opt([['wait', '진행'], ['waiting', '⏳ 기다리는 중'], ['hold:reply', '⏸ 장기 대기 — 📨 업체 회신'], ['hold:internal', '⏸ 장기 대기 — 🗂 내부'], ['idea', '💡 제안 (아직 안 맡음)']].concat(t ? [['done', '완료'], ['cancel', '취소(안 하기로 함)']] : []), t ? (t.status === 'ing' ? 'wait' : t.status === 'hold' ? 'hold:' + core.holdKindOf(t) : t.status) : 'wait') + '</select></div>'
       + '<div class="fg"><label>&nbsp;</label><label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--text)"><input type="checkbox" id="f-hi" style="width:auto"' + (t && t.priority === 'high' ? ' checked' : '') + '> <span style="color:#DC2626">★</span> 긴급</label></div>'
     + '</div>'
-    + '<div class="fg' + (t && (t.status === 'waiting' || t.status === 'hold') ? '' : ' hidden') + '"><label>무엇을 기다리나</label><input id="f-wf" value="' + v('waitingFor') + '" placeholder="예: 서류 회신"></div>'
+    + '<div class="fg' + (t && (t.status === 'waiting' || (t.status === 'hold' && core.holdKindOf(t) === 'reply')) ? '' : ' hidden') + '"><label>무엇을 기다리나</label><input id="f-wf" value="' + v('waitingFor') + '" placeholder="예: 서류 회신"></div>'
     + '<div class="grid2">'
       + '<div class="fg"><label>종류</label><select id="f-kind"><option value="">—</option>' + opt(core.KINDS.map(k => [k, core.KIND_LABEL[k]]), t && t.kind) + '</select></div>'
       + '<div class="fg"><label>업무 분야</label><select id="f-cat"><option value="">—</option>' + opt(Object.entries(CATS), t && t.category) + '</select></div>'
@@ -1018,7 +1041,7 @@ function dateLabels(idea) {
   return idea ? ['시작일 (선택 · 와도 제안 칸 유지)', '종료일 (선택)'] : ['시작일 — 이 날부터 「진행 업무」', '마감 (선택)'];
 }
 function fStatusChange(v) {
-  document.getElementById('f-wf').closest('.fg').classList.toggle('hidden', v !== 'waiting' && v !== 'hold');
+  document.getElementById('f-wf').closest('.fg').classList.toggle('hidden', v !== 'waiting' && v !== 'hold:reply');
   const l = dateLabels(v === 'idea');
   document.getElementById('f-start-l').textContent = l[0]; document.getElementById('f-due-l').textContent = l[1];
   const st = document.getElementById('f-start');
@@ -1029,7 +1052,7 @@ function formValues() {
   const coRaw = val('f-co').trim(); const m = coRaw.match(/·\s*(\S+)\s*$/);
   const rep = val('f-rep');
   return {
-    text: val('f-text').trim(), company: m ? m[1] : coRaw, status: val('f-status'), startDate: val('f-start'), dueDate: val('f-due'),
+    text: val('f-text').trim(), company: m ? m[1] : coRaw, status: val('f-status').split(':')[0], holdKind: val('f-status').split(':')[1] || '', startDate: val('f-start'), dueDate: val('f-due'),
     waitingFor: val('f-wf').trim(), kind: val('f-kind'), callTime: val('f-time').trim(), category: val('f-cat'), priority: document.getElementById('f-hi').checked ? 'high' : '',
     memo: val('f-memo').trim(), repeat: rep ? { every: rep, n: 1 } : null,
   };
@@ -1039,13 +1062,14 @@ async function saveEdit(id) {
   if (!f.text) { toast('할 일 내용을 적어 주세요', true); return; }
   try {
     if (!id) {
-      const body = { ...f }; if (!body.company) delete body.company; if (!body.repeat) delete body.repeat; if (!body.startDate) delete body.startDate; if (!body.callTime) delete body.callTime;
+      const body = { ...f }; if (!body.holdKind) delete body.holdKind; if (!body.company) delete body.company; if (!body.repeat) delete body.repeat; if (!body.startDate) delete body.startDate; if (!body.callTime) delete body.callTime;
       const r = await api('POST', '/api/todos', body); toast(esc(r.label) + ' 추가됨');
     } else {
       const t = todos.find(x => x._id === id);
       const patch = {};
       for (const k of ['text', 'status', 'dueDate', 'waitingFor', 'kind', 'callTime', 'category', 'priority', 'memo']) if ((t[k] || '') !== (f[k] || '')) patch[k] = f[k];
       if (t.status === 'ing' && f.status === 'wait') delete patch.status;            // 진행(ing·wait)은 같은 칸
+      if (f.status === 'hold' && (t.status !== 'hold' || core.holdKindOf(t) !== f.holdKind)) patch.holdKind = f.holdKind;   // 장기 대기 종류(업체 회신·내부)
       if (f.startDate !== core.startOf(t) && (f.startDate || f.status === 'idea')) patch.startDate = f.startDate;   // 제안은 시작일을 비울 수도 있다
       if (document.getElementById('f-co').value.trim() !== coValue(t)) patch.company = f.company;   // 기업 칸을 손댔을 때만
       if (JSON.stringify((t.repeat && t.repeat.every) || '') !== JSON.stringify((f.repeat && f.repeat.every) || '')) patch.repeat = f.repeat;
@@ -1188,7 +1212,7 @@ document.addEventListener('click', e => {
 new MutationObserver(applyFolds).observe(document.body, { childList: true, subtree: true });
 applyFolds();
 
-Object.assign(window, { leadAct, leadHistoryOpen, leadFilter, leadSyncNow, leadStatsOpen, leadUpload, fStatusChange, openIdea, signIn, signOutNow, pickMe, setMe, setView, act, quickAdd, quickHint, openEdit, saveEdit, delTodo, closeModal, weekMove, migPrev, migApply, autoPrev, autoRun, openTask, setDoneDay, submitDone, stPrev, stApply });
+Object.assign(window, { holdTo, leadAct, leadHistoryOpen, leadFilter, leadSyncNow, leadStatsOpen, leadUpload, fStatusChange, openIdea, signIn, signOutNow, pickMe, setMe, setView, act, quickAdd, quickHint, openEdit, saveEdit, delTodo, closeModal, weekMove, migPrev, migApply, autoPrev, autoRun, openTask, setDoneDay, submitDone, stPrev, stApply });
 </script>
 </body>
 </html>
