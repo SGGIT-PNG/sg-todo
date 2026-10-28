@@ -314,8 +314,8 @@ export async function callTool(name, args, { db, email, nowMs, env = {}, fetchFn
       const r = await createTodo(ctx, fields, ref ? { source: 'chat', sourceRef: String(ref) } : { source: 'chat', checkRecentDup: true });
       const t = r.todo;
       const today = kstToday(nowMs);
-      const where = t.kind === 'call' && t.status !== 'idea' ? ' · 📞 통화 ' + t.startDate + (t.callTime ? ' ' + t.callTime : ' (시간 미정)') : t.status === 'idea' ? ' · 💡 제안 업무' + (t.startDate ? '(시작 ' + t.startDate + ')' : '') : t.status === 'hold' ? ' · ⏸ ' + HOLD_LABEL[holdKindOf(t)].replace(/^\S+ /, '') : t.startDate > today ? ' · 예정 업무(' + t.startDate + ' 시작)' : ' · 진행 업무';
-      const tail = (t.companyName ? ' · ' + t.companyName : '') + where + (t.dueDate ? (t.status === 'idea' ? ' · 종료 ' : ' · 마감 ') + t.dueDate : '') + (t.status === 'waiting' ? ' · 기다리는 중' : '') + (t.priority === 'high' ? ' · 긴급' : '');
+      const where = t.kind === 'call' && t.status !== 'idea' ? ' · 📞 통화 ' + t.startDate + (t.callTime ? ' ' + t.callTime : ' (시간 미정)') : t.status === 'idea' ? ' · 💡 제안 업무' + (t.startDate ? '(시작 ' + t.startDate + ')' : '') : t.status === 'inbox' ? ' · ✅ 체크(📥 받은 요청)' : t.status === 'waiting' ? ' · ⏳ 기다림(' + (t.waitOn === 'org' ? '🏛 기관' : '📨 업체') + ' 차례)' : t.status === 'hold' ? ' · ⏸ ' + HOLD_LABEL[holdKindOf(t)].replace(/^\S+ /, '') : t.startDate > today ? ' · 예정 업무(' + t.startDate + ' 시작)' : ' · 진행 업무';
+      const tail = (t.companyName ? ' · ' + t.companyName : '') + where + (t.dueDate ? (t.status === 'idea' ? ' · 종료 ' : ' · 마감 ') + t.dueDate : '')  + (t.priority === 'high' ? ' · 긴급' : '');
       return r.created ? r.label + ' 저장됨' + tail + ' — ' + t.text : '이미 있는 할 일이라 새로 만들지 않았습니다: ' + r.label + tail + ' — ' + t.text;
     }
     case 'todo_complete': {
