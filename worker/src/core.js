@@ -2,8 +2,8 @@
 // 쓰기 창구(Worker)와 할 일 웹 화면이 같은 규칙을 쓰도록 이 파일 하나에 모은다.
 // 설계: sgcrm/TODO_ARCHITECTURE.md §3
 
-export const STATUSES = ['wait', 'ing', 'waiting', 'hold', 'idea', 'done', 'cancel'];
-export const STATUS_LABEL = { wait: '진행', ing: '진행', waiting: '기다리는 중', hold: '장기 대기', idea: '제안', done: '완료', cancel: '취소' };
+export const STATUSES = ['inbox', 'wait', 'ing', 'waiting', 'hold', 'idea', 'done', 'cancel'];
+export const STATUS_LABEL = { wait: '진행', ing: '진행', inbox: '받은 요청', waiting: '기다리는 중', hold: '장기 대기', idea: '제안', done: '완료', cancel: '취소' };
 // 칸 — 시작일이 오면 진행 업무, 아직이면 예정 업무, 끝나면 완료 (2026-10-11 사장님 지시)
 //   + 제안 업무(status idea): 업체와 상관없이 우리가 먼저 제안하려는 일. 시작일과 상관없이 이 칸에 머물고,
 //     실제로 맡으면(status ing/wait) 하고 있는·예정 업무로 옮겨 간다
@@ -18,8 +18,13 @@ export const STATUS_LABEL = { wait: '진행', ing: '진행', waiting: '기다리
 export const HOLD_KINDS = ['reply', 'internal'];
 export const HOLD_LABEL = { reply: '📨 업체 회신 대기', internal: '🗂 내부 장기 대기' };
 export function holdKindOf(t) { return HOLD_KINDS.includes(t && t.holdKind) ? t.holdKind : (t && t.waitingFor ? 'reply' : 'internal'); }
-export const COLS = ['call', 'ing', 'todo', 'hold', 'idea', 'done'];
-export const COL_LABEL = { call: '📞 통화', ing: '진행 업무', todo: '예정 업무', hold: '장기 대기', idea: '제안 업무', done: '완료 업무', trash: '휴지통' };
+// ── 2026-10-28 「누구 차례」 보드 (사장님과 설계) ──
+//   ✅ 체크(check): 📥 받은 요청(status inbox) + 기다린 지 3일 된 일(확인할 날 checkAt) + 2주 넘은 일 — 두 대표가 같이 보고 누름
+//   🟠 진행(ing) = 우리 차례 · ⏳ 기다림(wait) = 📨 업체 차례·🏛 기관 차례(status waiting, waitOn) + 장기 대기(status hold)
+//   📅 예정(todo) = 날짜 차례 · 📞 통화 · 💡 제안 · 완료(결과 result ok/fail — 부결·불합격은 「종료(부결)」)
+//   업무 종류별 단계(flow·stage): FLOWS — 단계마다 차례가 정해져 있고 버튼(acts)을 누르면 다음 단계·차례·확인일이 저절로 바뀐다
+export const COLS = ['check', 'call', 'ing', 'wait', 'todo', 'idea', 'done'];
+export const COL_LABEL = { check: '✅ 체크', call: '📞 통화', ing: '진행 — 우리 차례', wait: '⏳ 기다림', hold: '장기 대기', todo: '예정 업무', idea: '제안 업무', done: '완료 업무', trash: '휴지통' };
 export const KINDS = ['call', 'doc', 'apply', 'visit', 'chase', 'internal'];
 export const KIND_LABEL = { call: '전화', doc: '서류', apply: '신청', visit: '방문', chase: '독촉', internal: '내부' };
 // 업무 분야(중분류) — SGCRM DEFAULT_CAT_META와 같은 id. 화면은 칸 안을 이 순서로 묶는다 (2026-10-12)
@@ -42,11 +47,91 @@ export function normCategory(v) {
 }
 export const SOURCES = ['manual', 'chat', 'voice', 'cert', 'iso', 'annual', 'lead', 'card', 'secretary', 'repeat'];
 export const AUTHORS = ['정석진', '김학미', '공동'];
+export const CHECK_DAYS = 3;     // 기다린 지 3일이면 체크 칸으로 (사장님: 3~4일)
+export const LONG_DAYS = 14;     // 2주 넘으면 「계속 기다릴까요?」 → 장기 대기는 2주마다 다시 체크
+export const TURN_LABEL = { ours: '🟠 우리 차례', firm: '📨 업체 차례', org: '🏛 기관 차례', date: '📅 날짜 차례' };
+// 업무 종류별 단계 — acts: [id, 이름, 갈 곳(단계 k · #ok 완료 · #fail 종료(부결) · #fix 보완 나옴), {date:true = 날짜를 받음}]
+//   turn date 단계는 날짜(stageDate)가 정해지면 예정 → 그날 진행, 아직 모르면 기관 차례로 기다림
+const FIX = ['fix', '보완 나옴', '#fix'];
+export const FLOWS = {
+  policy: { name: '정책자금·자금조달', cats: ['policy', 'fund'], steps: [
+    { k: 'apply', label: '사이트 신청', turn: 'ours', acts: [['applied', '신청 완료', 'decide']] },
+    { k: 'decide', label: '승인·부결 대기', turn: 'org', acts: [['ok', '승인', 'docs'], ['no', '부결', '#fail'], FIX] },
+    { k: 'docs', label: '서류 작성·전송', turn: 'ours', acts: [['sent', '전송 완료', 'result']] },
+    { k: 'result', label: '결과 대기', turn: 'org', acts: [['ok', '완료(승인)', '#ok'], ['no', '부결', '#fail'], FIX] }] },
+  support: { name: '지원사업', cats: ['support'], steps: [
+    { k: 'plan', label: '사업계획서 작성·신청', turn: 'ours', acts: [['applied', '신청 완료', 'screen']] },
+    { k: 'screen', label: '서류전형 결과', turn: 'org', acts: [['ok', '합격', 'visit'], ['ok2', '합격(실사 없음)', 'final'], ['no', '불합격', '#fail'], FIX] },
+    { k: 'visit', label: '실사', turn: 'date', acts: [['done', '실사 끝', 'final']] },
+    { k: 'final', label: '최종 결과', turn: 'org', acts: [['ok', '선정', '#ok'], ['no', '탈락', '#fail'], FIX] }] },
+  iso: { name: 'ISO 인증', cats: ['iso'], steps: [
+    { k: 'audit', label: '심사', turn: 'date', acts: [['done', '심사 끝', 'report']] },
+    { k: 'report', label: '심사보고서 인증원 발송', turn: 'ours', acts: [['sent', '발송 완료', 'cert']] },
+    { k: 'cert', label: '인증서 발급 대기', turn: 'org', acts: [['ok', '인증서 발급', '#ok'], FIX] }] },
+  lab: { name: '연구소·전담부서', cats: ['lab'], steps: [
+    { k: 'apply', label: '코이타 입력·신청', turn: 'ours', acts: [['applied', '신청 완료', 'review']] },
+    { k: 'review', label: '기관 검토', turn: 'org', acts: [['ok', '인정서 발급', '#ok'], ['no', '반려', '#fail'], FIX] }] },
+  ven: { name: '벤처기업확인', cats: ['ven'], steps: [
+    { k: 'plan', label: '사업계획서 작성·입력', turn: 'ours', acts: [['applied', '입력 완료', 'review']] },
+    { k: 'review', label: '기관 검토', turn: 'org', acts: [['ok', '검토 통과', 'visit'], FIX] },
+    { k: 'visit', label: '현장실사', turn: 'date', acts: [['done', '실사 끝', 'judge']] },
+    { k: 'judge', label: '심의 결과', turn: 'org', acts: [['ok', '합격(인증서 발급)', '#ok'], ['no', '불합격', 'appeal'], FIX] },
+    { k: 'appeal', label: '이의제기(30일 안)', turn: 'ours', acts: [['sent', '이의제기 제출', 'appealres'], ['no', '이의제기 안 함', '#fail']] },
+    { k: 'appealres', label: '이의제기 결과', turn: 'org', acts: [['ok', '합격', '#ok'], ['no', '불합격', '#fail'], FIX] }] },
+  confirm: { name: '확인서', cats: ['confirm'], steps: [
+    { k: 'apply', label: '웹사이트 입력·신청', turn: 'ours', acts: [['applied', '신청 완료', 'review']] },
+    { k: 'review', label: '기관 검토', turn: 'org', acts: [['ok', '발급', '#ok'], ['no', '미발급', '#fail'], FIX] }] },
+};
+export const FLOW_IDS = Object.keys(FLOWS);
+export function flowSteps(t) { return (FLOWS[t && t.flow] || {}).steps || null; }
+export function stageOf(t) { const st = flowSteps(t); if (!st) return null; return st.find(x => x.k === t.stage) || st[0]; }
+// 지금 누를 수 있는 버튼 — [{id, label, to, date}]
+export function stageActs(t) {
+  const sg = stageOf(t); if (!sg) return [];
+  if (t.fixing) return [{ id: 'fixed', label: '보완 제출', to: '#unfix' }];
+  if (sg.turn === 'date' && !t.stageDate) return [{ id: 'setdate', label: sg.label + ' 날짜 정함', to: sg.k, date: true }].concat(sg.acts.map(([id, label, to, o]) => ({ id, label, to, date: !!(o && o.date) })));
+  return sg.acts.map(([id, label, to, o]) => ({ id, label, to, date: !!(o && o.date) }));
+}
+// 단계에 들어갈 때 쓸 값 — 차례에 따라 진행·기다림·예정
+function enterStage(sg, nowMs, date) {
+  const today = kstToday(nowMs);
+  if (sg.turn === 'ours') return { status: 'ing', startDate: today, waitOn: '', waitSince: null, checkAt: '', checks: 0, stageDate: '' };
+  if (sg.turn === 'date' && date) return { status: 'wait', startDate: date, stageDate: date, waitOn: '', waitSince: null, checkAt: '', checks: 0 };
+  return { status: 'waiting', waitOn: sg.turn === 'firm' ? 'firm' : 'org', waitSince: nowMs, checkAt: addDays(today, CHECK_DAYS), checks: 0, stageDate: '' };
+}
+// 버튼 하나 누름 → 바꿀 값. act = 버튼 id 또는 이름
+export function stepPatch(t, act, { date = '', nowMs = Date.now() } = {}) {
+  const sg = stageOf(t); if (!sg) throw new RuleError('이 업무에는 단계가 없습니다(업무 종류를 먼저 정하세요)');
+  const a = stageActs(t).find(x => x.id === act || x.label === act || x.label.replace(/\(.*\)/, '') === String(act).trim());
+  if (!a) throw new RuleError('지금 단계(' + sg.label + ')에서 누를 수 있는 것: ' + stageActs(t).map(x => x.label).join(' · '));
+  if (a.date && !date) throw new RuleError(a.label + ' — 날짜를 함께 주세요');
+  if (a.to === '#ok') return { status: 'done', result: 'ok', fixing: false };
+  if (a.to === '#fail') return { status: 'done', result: 'fail', fixing: false };
+  if (a.to === '#fix') return { fixing: true, status: 'ing', startDate: kstToday(nowMs), waitOn: '', waitSince: null, checkAt: '', checks: 0 };
+  if (a.to === '#unfix') return Object.assign({ fixing: false }, enterStage(sg, nowMs));
+  const next = flowSteps(t).find(x => x.k === a.to);
+  return Object.assign({ stage: next.k, fixing: false }, enterStage(next, nowMs, a.date ? date : ''));
+}
+// 체크 칸 「아직」 — 다시 확인할 날을 뒤로(기다림 3일 · 장기 대기 2주)
+export function checkLaterPatch(t, nowMs = Date.now()) {
+  const today = kstToday(nowMs);
+  return { checkAt: addDays(today, t.status === 'hold' ? LONG_DAYS : CHECK_DAYS), checks: (t.checks || 0) + 1 };
+}
+// 체크 칸 「계속 기다림」(2주 넘음) — 장기 대기로, 2주 뒤 다시 체크
+export function longWaitPatch(t, nowMs = Date.now()) {
+  return { status: 'hold', holdKind: t.waitOn === 'org' || t.waitOn === 'firm' || t.waitingFor ? 'reply' : 'internal', checkAt: addDays(kstToday(nowMs), LONG_DAYS) };
+}
+export function waitSinceOf(t) { return t.waitSince || t.holdAt || touchedAt(t); }
+export function checkAtOf(t) {
+  if (t.checkAt) return t.checkAt;
+  const since = waitSinceOf(t); if (!since) return '';
+  return addDays(kstToday(since), t.status === 'hold' ? LONG_DAYS : CHECK_DAYS);
+}
 export const RULES_DEFAULT = { stallDays: 14, soonDays: 3, horizonDays: 30, leadDays: 14 };
 export const TRASH_DAYS = 30;
 
 // 사람이 바꿀 수 있는 칸 (그 외 no·createdAt·source 등은 창구만 정한다)
-export const EDITABLE = ['text', 'status', 'holdKind', 'startDate', 'dueDate', 'waitingFor', 'bizno', 'companyName', 'category',
+export const EDITABLE = ['text', 'status', 'holdKind', 'flow', 'stage', 'stageDate', 'waitOn', 'checkAt', 'result', 'startDate', 'dueDate', 'waitingFor', 'bizno', 'companyName', 'category',
   'kind', 'callTime', 'priority', 'assignee', 'memo', 'tag', 'repeat'];
 // 바뀌면 「손댄 것」으로 보는 칸 — 멈춤 판정 기준 statusAt 갱신 (CRM 기존 규칙과 같음)
 const TOUCH_FIELDS = ['status', 'startDate', 'dueDate', 'memo', 'waitingFor'];
@@ -243,6 +328,23 @@ export function cleanPatch(patch, { nowMs = Date.now(), creating = false } = {})
     if (hk && !HOLD_KINDS.includes(hk)) throw new RuleError('장기 대기 종류는 reply(업체 회신 대기)·internal(내부 장기 대기) 중 하나입니다');
     out.holdKind = hk;
   }
+  if ('flow' in patch) {
+    const f = String(patch.flow || '').trim();
+    const byName = FLOW_IDS.find(k => FLOWS[k].name.replace(/\s/g, '').includes(f.replace(/\s/g, '')) && f);
+    out.flow = FLOWS[f] ? f : byName || (f ? (() => { throw new RuleError('업무 종류는 ' + FLOW_IDS.map(k => k + '(' + FLOWS[k].name + ')').join('·') + ' 중 하나입니다'); })() : '');
+  }
+  if ('stage' in patch) out.stage = String(patch.stage || '').trim();
+  if ('stageDate' in patch) out.stageDate = patch.stageDate ? parseDue(patch.stageDate, nowMs) : '';
+  if ('waitOn' in patch) {
+    const w = { 업체: 'firm', 기관: 'org' }[String(patch.waitOn || '').trim()] || patch.waitOn || '';
+    if (w && !['firm', 'org'].includes(w)) throw new RuleError('기다리는 쪽은 firm(업체)·org(기관) 중 하나입니다');
+    out.waitOn = w;
+  }
+  if ('checkAt' in patch) out.checkAt = patch.checkAt ? parseDue(patch.checkAt, nowMs) : '';
+  if ('result' in patch) {
+    if (patch.result && !['ok', 'fail'].includes(patch.result)) throw new RuleError('결과는 ok(완료)·fail(부결·불합격) 중 하나입니다');
+    out.result = patch.result || '';
+  }
   const dueIn = 'due' in patch ? patch.due : patch.dueDate;
   if ('due' in patch || 'dueDate' in patch) out.dueDate = parseDue(dueIn ?? '', nowMs);
   // 시작일 — 이 날이 오면 「진행 업무」로 옮겨 간다. 빈 값('')은 「비움」 — 제안 업무면 비워 두고, 아니면 applyChange·newTodo가 오늘로 채운다
@@ -312,6 +414,14 @@ export function applyChange(old, upd, actor, nowMs = Date.now()) {
     }
   }
   if ('status' in next) {
+    const tdy = kstToday(nowMs);
+    // 기다림(업체·기관)에 들어가면 기다린 날을 세고 3일 뒤 체크, 장기 대기는 2주 뒤 체크
+    if (next.status === 'waiting' && !('waitSince' in upd)) { next.waitSince = nowMs; if (!('checkAt' in upd)) next.checkAt = addDays(tdy, CHECK_DAYS); next.checks = 0; }
+    if (next.status === 'hold' && !('checkAt' in upd)) next.checkAt = addDays(tdy, LONG_DAYS);
+    if (['wait', 'ing', 'inbox', 'idea', 'done', 'cancel'].includes(next.status) && old && (old.status === 'waiting' || old.status === 'hold')) {
+      if (!('waitSince' in upd)) next.waitSince = null; if (!('checkAt' in upd)) next.checkAt = ''; if (!('waitOn' in upd) && old.waitOn) next.waitOn = '';
+    }
+    if (old && old.result && next.status !== 'done' && !('result' in upd)) next.result = '';   // 다시 열면 결과 지움
     if (next.status === 'hold') next.holdAt = nowMs;   // 대기 시작한 때 — 메모를 고쳐도 「대기 N일째」가 다시 0이 되지 않게
     else if (old && old.status === 'hold') { next.holdAt = null; if (old.holdKind) next.holdKind = null; }
     if (old && old.status === 'idea' && (next.status === 'done' || next.status === 'cancel')) next.fromIdea = true;
@@ -361,21 +471,41 @@ export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
   const tags = [];
   if (t.status === 'done' || t.status === 'cancel') {
     const dd = t.doneAt ? kstToday(t.doneAt) : '';
-    return { col: 'done', days: 0, alert: false, tags: t.status === 'cancel' ? [{ t: '취소', tone: 'plain' }] : [], reason: t.status === 'cancel' ? '취소' : dd ? dd.slice(5).replace('-', '/') + ' 완료' : '완료' };
+    const fail = t.status === 'done' && t.result === 'fail';   // 부결·불합격·미발급 = 종료(부결) — 통계용으로 완료와 구분
+    return { col: 'done', result: t.status === 'done' ? t.result || 'ok' : '', days: 0, alert: false, tags: t.status === 'cancel' ? [{ t: '취소', tone: 'plain' }] : fail ? [{ t: '종료(부결)', tone: 'mute' }] : [],
+      reason: t.status === 'cancel' ? '취소' : (dd ? dd.slice(5).replace('-', '/') + ' ' : '') + (fail ? '종료(부결)' : '완료') };
   }
   const today = kstToday(nowMs);
   const start = startOf(t, nowMs);
   const due = t.dueDate || '';
   const dleft = due ? daysBetween(today, due) : null;
-  if (t.status === 'hold') {   // ⏸ 장기 대기 — 빨간 표시 없음. 대기에 들어간 날(statusAt)부터 며칠째인지만
-    const since = t.holdAt || touchedAt(t);
-    const d = since ? daysBetween(kstToday(since), today) : 0;
+  const sg = stageOf(t);
+  if (sg) {   // 단계 꼬리표 — 「2/4 승인·부결 대기」(보완 중이면 「보완 처리」)
+    const st = flowSteps(t), i = st.indexOf(sg);
+    tags.push({ t: (i + 1) + '/' + st.length + ' ' + (t.fixing ? '보완 처리' : sg.label), tone: 'stage' });
+  }
+  const stageInfo = sg ? { flow: t.flow, stage: sg.k, stageIdx: flowSteps(t).indexOf(sg), stageCount: flowSteps(t).length, stageLabel: t.fixing ? '보완 처리 — ' + sg.label : sg.label } : {};
+  if (t.status === 'inbox') {   // 📥 받은 요청 — 체크 칸 맨 위
+    const age = t.createdAt ? daysBetween(kstToday(t.createdAt), today) : 0;
     if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });
-    const hk = holdKindOf(t);
+    if (due) tags.push({ t: '마감 ' + due.slice(5).replace('-', '/'), tone: dleft < 0 ? 'red' : 'amber' });
+    return Object.assign({ col: 'check', check: 'inbox', turn: 'ours', days: age, alert: false, tags, reason: [age === 0 ? '오늘 받은 요청' : '받은 지 ' + age + '일'].concat(tags.map(x => x.t)).join(' · ') }, stageInfo);
+  }
+  if (t.status === 'waiting' || t.status === 'hold') {   // ⏳ 기다림 — 업체·기관 차례, 장기 대기. 빨간 표시 없이 확인할 날이 오면 체크 칸으로
+    const since = waitSinceOf(t);
+    const d = since ? daysBetween(kstToday(since), today) : 0;
+    const long = t.status === 'hold';
+    const hk = long ? holdKindOf(t) : '';
+    const on = long ? (hk === 'internal' ? 'internal' : t.waitOn || 'firm') : t.waitOn || 'firm';
+    if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });
     if (t.waitingFor) tags.push({ t: '⏳ ' + t.waitingFor, tone: 'wait' });
     if (due) tags.push({ t: (dleft < 0 ? '마감 지남 ' : '마감 ') + due.slice(5).replace('-', '/'), tone: 'mute' });
-    const head = hk === 'reply' ? (d === 0 ? '오늘 요청' : '요청 ' + d + '일째') : (d === 0 ? '오늘 대기 시작' : '대기 ' + d + '일째');
-    return { col: 'hold', holdKind: hk, days: d, alert: false, tags, reason: [head].concat(tags.map(x => x.t)).join(' · ') };
+    const ca = checkAtOf(t);
+    const over = !long && d >= LONG_DAYS;
+    const due2 = (ca && ca <= today) || over;
+    const head = on === 'internal' ? (d === 0 ? '오늘 대기 시작' : '대기 ' + d + '일째') : (on === 'org' ? '🏛 ' : '📨 ') + (d === 0 ? '오늘부터 기다림' : d + '일째 기다림');
+    return Object.assign({ col: due2 ? 'check' : 'wait', check: due2 ? (over ? 'long' : 'due') : '', turn: on === 'internal' ? 'ours' : on, waitOn: on, long, holdKind: hk, checkAt: ca,
+      days: d, alert: false, tags, reason: [head].concat(tags.map(x => x.t)).concat(due2 ? [] : ca ? ['확인 ' + ca.slice(5).replace('-', '/')] : []).join(' · ') }, stageInfo);
   }
   if (t.kind === 'call' && t.status !== 'idea') {   // 📞 통화 — 날짜(시작일)·시각만 본다. 날짜 지났는데 안 했으면 놓친 통화
     const d = start;
@@ -384,7 +514,7 @@ export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
     if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });
     if (missed) tags.push({ t: '놓친 통화', tone: 'red' });
     if (t.status === 'waiting') tags.push({ t: '⏳ ' + (t.waitingFor || '기다리는 중'), tone: 'wait' });
-    return { col: 'call', days: daysBetween(today, d), alert: missed, tags, reason: [when].concat(tags.map(x => x.t)).join(' · ') };
+    return Object.assign({ col: 'call', turn: 'ours', days: daysBetween(today, d), alert: missed, tags, reason: [when].concat(tags.map(x => x.t)).join(' · ') }, stageInfo);
   }
   if (t.status === 'idea') {   // 제안 업무 — 날짜로 압박하지 않는다(빨간 표시 없음). 얼마나 묵었는지만
     const age = t.createdAt ? daysBetween(kstToday(t.createdAt), today) : 0;
@@ -395,7 +525,6 @@ export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
     return { col: 'idea', days: age, alert: false, tags, reason: [age === 0 ? '오늘 등록' : '등록 ' + age + '일 전'].concat(tags.map(x => x.t)).join(' · ') };
   }
   if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });
-  if (t.status === 'waiting') tags.push({ t: '⏳ ' + (t.waitingFor || '기다리는 중'), tone: 'wait' });
   let alert = false;
   if (due) {
     if (dleft < 0) { tags.push({ t: '마감 ' + (-dleft) + '일 지남', tone: 'red' }); alert = true; }
@@ -403,12 +532,12 @@ export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
   }
   if (start > today) {
     const left = daysBetween(today, start);
-    return { col: 'todo', days: left, alert, tags, reason: [dayTag('todo', left)].concat(tags.map(x => x.t)).join(' · ') };
+    return Object.assign({ col: 'todo', turn: 'date', days: left, alert, tags, reason: [dayTag('todo', left)].concat(tags.map(x => x.t)).join(' · ') }, stageInfo);
   }
   const days = daysBetween(start, today) + 1;   // 시작한 날 = 1일째
   if (days >= rules.stallDays) alert = true;     // 오래 끈 일
   const head = dayTag('ing', days);
-  return { col: 'ing', days, alert, tags, reason: [head].concat(tags.map(x => x.t)).join(' · ') };
+  return Object.assign({ col: 'ing', turn: 'ours', days, alert, tags, reason: [head].concat(tags.map(x => x.t)).join(' · ') }, stageInfo);
 }
 
 // 화면에 보일 업무 글 (2026-10-28 사장님: 「업무 먼저, 회사는 🏢 칩」으로 통일) — 저장된 글은 그대로, 보여 줄 때만
@@ -444,6 +573,13 @@ export function summarize(action, todo, changes, actorName) {
   const parts = Object.entries(changes || {}).map(([k, [, to]]) => {
     if (k === 'status') return (changes.status[0] === 'idea' && to !== 'idea' ? '제안 → ' : '') + (STATUS_LABEL[to] || to);
     if (k === 'dueDate') return to ? '마감 ' + to : '마감 없앰';
+    if (k === 'stage') { const sg = (flowSteps(todo) || []).find(x => x.k === to); return '단계 → ' + (sg ? sg.label : to); }
+    if (k === 'flow') return '업무 종류 ' + ((FLOWS[to] || {}).name || '없음');
+    if (k === 'result') return to === 'fail' ? '종료(부결)' : to === 'ok' ? '결과 완료' : '결과 지움';
+    if (k === 'fixing') return to ? '보완 나옴' : '보완 제출';
+    if (k === 'checkAt') return to ? '다시 확인 ' + to : '확인일 지움';
+    if (k === 'waitOn') return to === 'org' ? '기관 차례' : to === 'firm' ? '업체 차례' : '';
+    if (['waitSince', 'checks', 'holdAt', 'stageDate'].includes(k)) return '';
     if (k === 'startDate') return '시작 ' + to;
     if (k === 'doneAt') return to ? '완료일 ' + kstToday(to) : '완료일 지움';
     if (k === 'text') return '내용 수정';
@@ -451,5 +587,5 @@ export function summarize(action, todo, changes, actorName) {
     if (k === 'bizno') return '기업 연결 변경';
     return k + ' 변경';
   });
-  return who + ' · ' + head + ' → ' + (parts.join(', ') || '수정');
+  return who + ' · ' + head + ' → ' + (parts.filter(Boolean).join(', ') || '수정');
 }
