@@ -161,7 +161,7 @@ test('추가 — 거절되는 경우', async () => {
   const db = seed();
   await assert.rejects(createTodo(ctxOf(db), { text: '  ' }), /비어/);
   await assert.rejects(createTodo(ctxOf(db), { text: 'x', status: 'done' }), /완료/);
-  await assert.rejects(createTodo(ctxOf(db), { text: 'x', status: 'hold' }), /상태는/);
+  await assert.rejects(createTodo(ctxOf(db), { text: 'x', status: 'pause' }), /상태는/);
   await assert.rejects(createTodo(ctxOf(db), { text: 'x', no: 5 }), /바꿀 수 없는/);
   const e = await createTodo(ctxOf(db), { text: '서류', company: '청림' }).catch(x => x);
   assert.equal(e.extra.candidates.length, 2);                      // 여럿이면 저장하지 않고 후보
@@ -457,4 +457,43 @@ test('📞 통화 — 시각 말 알아듣기 · 통화 칸 · 놓친 통화 · 
   assert.equal(db.store.get('todos/T-0001').callTime, '16:30');
   await completeTodo(ctxOf(db), 'T-0001', '서류 다음 주 보내기로');
   assert.equal(core.bucket(db.store.get('todos/T-0001'), core.RULES_DEFAULT, NOW).col, 'done');
+});
+
+test('⏸ 장기 대기 — 넘기면 장기 대기 칸·빨간 표시 없음, 다시 진행하면 오늘부터', async () => {
+  const db = seed();
+  const old = NOW - 40 * DAY;
+  await createTodo(ctxOf(db, '정석진', 'web', old), { text: '오래 기다리는 일', company: '청림테크', due: '2026-09-20' });
+  let t = (await listTodos(db, { view: 'ing' }, NOW)).items[0];
+  assert.equal(t.col, 'ing'); assert.equal(t.alert, true);   // 오래 끈 일 + 마감 지남 → 빨강
+  // 장기 대기로 넘김(무엇을 기다리는지 함께)
+  await updateTodo(ctxOf(db), 'T-1', { status: 'hold', waitingFor: '정부 공고' });
+  assert.equal((await listTodos(db, { view: 'ing' }, NOW)).total, 0);
+  t = (await listTodos(db, { view: 'hold' }, NOW)).items[0];
+  assert.equal(t.col, 'hold'); assert.equal(t.alert, false);
+  assert.match(t.reason, /오늘 대기 시작/); assert.match(t.reason, /정부 공고/); assert.match(t.reason, /마감 지남/);
+  assert.match(acts(db).at(-1).summary, /장기 대기/);
+  // 열흘 뒤 메모를 고쳐도 「대기 N일째」는 대기 시작한 날 기준
+  await updateTodo(ctxOf(db, '정석진', 'web', NOW + 10 * DAY), 'T-1', { memo: '공고 다음 달' });
+  t = (await listTodos(db, { view: 'hold' }, NOW + 10 * DAY)).items[0];
+  assert.match(t.reason, /대기 10일째/);
+  assert.equal((await listTodos(db, { view: 'all' }, NOW + 10 * DAY)).total, 1);   // 기업별 보기에는 들어감
+  assert.equal((await listTodos(db, { view: 'open' }, NOW + 10 * DAY)).total, 0);  // 진행·예정 업무에는 안 들어감
+  // 다시 진행 → 시작일 오늘, 진행 업무 「오늘 시작」
+  const r = await updateTodo(ctxOf(db, '정석진', 'web', NOW + 12 * DAY), 'T-1', { status: 'ing' });
+  assert.equal(r.todo.startDate, core.kstToday(NOW + 12 * DAY));
+  t = (await listTodos(db, { view: 'ing' }, NOW + 12 * DAY)).items[0];
+  assert.equal(t.col, 'ing'); assert.match(t.reason, /오늘 시작/);
+  assert.equal(db.store.get('todos/T-0001').holdAt, null);
+});
+
+test('화면 글 — 업무 먼저, 회사 이름은 칩으로(글 앞의 회사 이름 떼기)', () => {
+  const tt = (text, companyName) => core.taskText({ text, companyName });
+  assert.equal(tt('하이퍼다인 ISO 인증 제안', '주식회사 하이퍼다인'), 'ISO 인증 제안');
+  assert.equal(tt('더퍼스트 남윤환 대표 법인신용등급 요청 확인', '더 퍼스트 주식회사 농업회사법인'), '남윤환 대표 법인신용등급 요청 확인');
+  assert.equal(tt('[청림테크] ISO 차기심사 준비', '청림테크'), 'ISO 차기심사 준비');
+  assert.equal(tt('(주)청림테크 — 견적 보내기', '주식회사 청림테크'), '견적 보내기');
+  assert.equal(tt('세웅바이오 심사보고서 제출', '(유)세웅바이오'), '심사보고서 제출');
+  assert.equal(tt('하이퍼다인에 연락', '주식회사 하이퍼다인'), '하이퍼다인에 연락');   // 낱말이 이어지면 그대로
+  assert.equal(tt('청림테크', '청림테크'), '청림테크');                                // 다 떼면 남는 게 없으니 그대로
+  assert.equal(tt('동우이엔지 · 반석 대신 자금조달', ''), '동우이엔지 · 반석 대신 자금조달');   // 회사 연결 없으면 그대로
 });
