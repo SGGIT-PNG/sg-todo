@@ -19,12 +19,13 @@ export const HOLD_KINDS = ['reply', 'internal'];
 export const HOLD_LABEL = { reply: '📨 업체 회신 대기', internal: '🗂 내부 장기 대기' };
 export function holdKindOf(t) { return HOLD_KINDS.includes(t && t.holdKind) ? t.holdKind : (t && t.waitingFor ? 'reply' : 'internal'); }
 // ── 2026-10-28 「누구 차례」 보드 (사장님과 설계) ──
-//   ✅ 체크(check): 📥 받은 요청(status inbox) + 기다린 지 3일 된 일(확인할 날 checkAt) + 2주 넘은 일 — 두 대표가 같이 보고 누름
+//   📥 받은 요청(col check): status inbox — 두 대표가 같이 보고 맡을지 정함
+//   ⏳ 기다림은 확인할 날이 와도 기다림 칸에 그대로 — check:'due'(기다린 지 3일·checkAt 도래)·'long'(2주 넘음)이 ⏰ 표시(2026-10-28 사장님: 칸은 누구 차례로만)
 //   🟠 진행(ing) = 우리 차례 · ⏳ 기다림(wait) = 📨 업체 차례·🏛 기관 차례(status waiting, waitOn) + 장기 대기(status hold)
 //   📅 예정(todo) = 날짜 차례 · 📞 통화 · 💡 제안 · 완료(결과 result ok/fail — 부결·불합격은 「종료(부결)」)
 //   업무 종류별 단계(flow·stage): FLOWS — 단계마다 차례가 정해져 있고 버튼(acts)을 누르면 다음 단계·차례·확인일이 저절로 바뀐다
 export const COLS = ['check', 'call', 'ing', 'wait', 'todo', 'idea', 'done'];
-export const COL_LABEL = { check: '✅ 체크', call: '📞 통화', ing: '진행 — 우리 차례', wait: '⏳ 기다림', hold: '장기 대기', todo: '예정 업무', idea: '제안 업무', done: '완료 업무', trash: '휴지통' };
+export const COL_LABEL = { check: '📥 받은 요청', call: '📞 통화', ing: '진행 — 우리 차례', wait: '⏳ 기다림', hold: '장기 대기', todo: '예정 업무', idea: '제안 업무', done: '완료 업무', trash: '휴지통' };
 export const KINDS = ['call', 'doc', 'apply', 'visit', 'chase', 'internal'];
 export const KIND_LABEL = { call: '전화', doc: '서류', apply: '신청', visit: '방문', chase: '독촉', internal: '내부' };
 // 업무 분야(중분류) — SGCRM DEFAULT_CAT_META와 같은 id. 화면은 칸 안을 이 순서로 묶는다 (2026-10-12)
@@ -47,7 +48,7 @@ export function normCategory(v) {
 }
 export const SOURCES = ['manual', 'chat', 'voice', 'cert', 'iso', 'annual', 'lead', 'card', 'secretary', 'repeat'];
 export const AUTHORS = ['정석진', '김학미', '공동'];
-export const CHECK_DAYS = 3;     // 기다린 지 3일이면 체크 칸으로 (사장님: 3~4일)
+export const CHECK_DAYS = 3;     // 기다린 지 3일이면 기다림 칸 맨 위 ⏰ 확인 표시 (사장님: 3~4일)
 export const LONG_DAYS = 14;     // 2주 넘으면 「계속 기다릴까요?」 → 장기 대기는 2주마다 다시 체크
 export const TURN_LABEL = { ours: '🟠 우리 차례', firm: '📨 업체 차례', org: '🏛 기관 차례', date: '📅 날짜 차례' };
 // 업무 종류별 단계 — acts: [id, 이름, 갈 곳(단계 k · #ok 완료 · #fail 종료(부결) · #fix 보완 나옴), {date:true = 날짜를 받음}]
@@ -112,12 +113,12 @@ export function stepPatch(t, act, { date = '', nowMs = Date.now() } = {}) {
   const next = flowSteps(t).find(x => x.k === a.to);
   return Object.assign({ stage: next.k, fixing: false }, enterStage(next, nowMs, a.date ? date : ''));
 }
-// 체크 칸 「아직」 — 다시 확인할 날을 뒤로(기다림 3일 · 장기 대기 2주)
+// 확인할 날 「아직」 — 다시 확인할 날을 뒤로(기다림 3일 · 장기 대기 2주)
 export function checkLaterPatch(t, nowMs = Date.now()) {
   const today = kstToday(nowMs);
   return { checkAt: addDays(today, t.status === 'hold' ? LONG_DAYS : CHECK_DAYS), checks: (t.checks || 0) + 1 };
 }
-// 체크 칸 「계속 기다림」(2주 넘음) — 장기 대기로, 2주 뒤 다시 체크
+// 확인할 날 「계속 기다림」(2주 넘음) — 장기 대기로, 2주 뒤 다시 체크
 export function longWaitPatch(t, nowMs = Date.now()) {
   return { status: 'hold', holdKind: t.waitOn === 'org' || t.waitOn === 'firm' || t.waitingFor ? 'reply' : 'internal', checkAt: addDays(kstToday(nowMs), LONG_DAYS) };
 }
@@ -485,13 +486,13 @@ export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
     tags.push({ t: (i + 1) + '/' + st.length + ' ' + (t.fixing ? '보완 처리' : sg.label), tone: 'stage' });
   }
   const stageInfo = sg ? { flow: t.flow, stage: sg.k, stageIdx: flowSteps(t).indexOf(sg), stageCount: flowSteps(t).length, stageLabel: t.fixing ? '보완 처리 — ' + sg.label : sg.label } : {};
-  if (t.status === 'inbox') {   // 📥 받은 요청 — 체크 칸 맨 위
+  if (t.status === 'inbox') {   // 📥 받은 요청 — 받은 요청 칸(col check)
     const age = t.createdAt ? daysBetween(kstToday(t.createdAt), today) : 0;
     if (t.priority === 'high') tags.push({ t: '긴급', tone: 'red' });
     if (due) tags.push({ t: '마감 ' + due.slice(5).replace('-', '/'), tone: dleft < 0 ? 'red' : 'amber' });
     return Object.assign({ col: 'check', check: 'inbox', turn: 'ours', days: age, alert: false, tags, reason: [age === 0 ? '오늘 받은 요청' : '받은 지 ' + age + '일'].concat(tags.map(x => x.t)).join(' · ') }, stageInfo);
   }
-  if (t.status === 'waiting' || t.status === 'hold') {   // ⏳ 기다림 — 업체·기관 차례, 장기 대기. 빨간 표시 없이 확인할 날이 오면 체크 칸으로
+  if (t.status === 'waiting' || t.status === 'hold') {   // ⏳ 기다림 — 업체·기관 차례, 장기 대기. 빨간 표시 없이 확인할 날이 오면 칸은 그대로 ⏰ 표시(check due·long)
     const since = waitSinceOf(t);
     const d = since ? daysBetween(kstToday(since), today) : 0;
     const long = t.status === 'hold';
@@ -504,7 +505,7 @@ export function bucket(t, rules = RULES_DEFAULT, nowMs = Date.now()) {
     const over = !long && d >= LONG_DAYS;
     const due2 = (ca && ca <= today) || over;
     const head = on === 'internal' ? (d === 0 ? '오늘 대기 시작' : '대기 ' + d + '일째') : (on === 'org' ? '🏛 ' : '📨 ') + (d === 0 ? '오늘부터 기다림' : d + '일째 기다림');
-    return Object.assign({ col: due2 ? 'check' : 'wait', check: due2 ? (over ? 'long' : 'due') : '', turn: on === 'internal' ? 'ours' : on, waitOn: on, long, holdKind: hk, checkAt: ca,
+    return Object.assign({ col: 'wait', check: due2 ? (over ? 'long' : 'due') : '', turn: on === 'internal' ? 'ours' : on, waitOn: on, long, holdKind: hk, checkAt: ca,
       days: d, alert: false, tags, reason: [head].concat(tags.map(x => x.t)).concat(due2 ? [] : ca ? ['확인 ' + ca.slice(5).replace('-', '/')] : []).join(' · ') }, stageInfo);
   }
   if (t.kind === 'call' && t.status !== 'idea') {   // 📞 통화 — 날짜(시작일)·시각만 본다. 날짜 지났는데 안 했으면 놓친 통화

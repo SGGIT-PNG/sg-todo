@@ -113,7 +113,7 @@ export async function createTodo(ctx, input, opts = {}) {
 // ── 수정 (상태 변경·완료·다시 열기·미루기·메모 덧붙이기 모두 여기로) ──
 export async function updateTodo(ctx, noInput, input) {
   const { db, actor, nowMs = Date.now() } = ctx;
-  // step = 단계 버튼(「승인」「보완 나옴」…) · check = 체크 칸 버튼(later 아직 · long 계속 기다림) — 지금 문서를 보고 바꿀 값을 정한다
+  // step = 단계 버튼(「승인」「보완 나옴」…) · check = 확인할 날 버튼(later 아직 · long 계속 기다림) — 지금 문서를 보고 바꿀 값을 정한다
   const { step, check, date: stepDate, ...rest } = input || {};
   input = rest;
   const upd = (step || check) && !Object.keys(input).length ? {} : cleanPatch(input, { nowMs });
@@ -239,7 +239,7 @@ export function sortCall(a, b) {
 }
 const COL_ORDER = { check: 0, call: 1, ing: 2, wait: 3, todo: 4, idea: 5, done: 6, trash: 7 };
 const VIEW_ALIAS = { today: 'open', missed: 'alert', recent_done: 'done' };   // 예전 이름도 받는다
-//   view: check(✅ 체크) | call(📞 통화, 날짜·시각 순) | ing(진행 — 우리 차례) | wait(⏳ 기다림 — 업체·기관·장기) | todo(예정) | hold(장기 대기) | inbox(받은 요청) | idea(제안 업무) | done(완료, 최근 순) | open(ing+todo) | all(ing+todo+idea)
+//   view: check(📥 받은 요청 + ⏰ 확인할 날) | call(📞 통화, 날짜·시각 순) | ing(진행 — 우리 차례) | wait(⏳ 기다림 — 업체·기관·장기) | todo(예정) | hold(장기 대기) | inbox(받은 요청) | idea(제안 업무) | done(완료, 최근 순) | open(ing+todo) | all(ing+todo+idea)
 //         | alert(빨간 표시) | waiting(기다리는 중) | week(7일 안 마감) | trash
 export async function listTodos(db, { view = 'open', company, category, query, limit = 50 } = {}, nowMs = Date.now()) {
   view = VIEW_ALIAS[view] || view;
@@ -251,8 +251,8 @@ export async function listTodos(db, { view = 'open', company, category, query, l
     call: r => r.col === 'call',
     ing: r => r.col === 'ing',
     todo: r => r.col === 'todo',
-    check: r => r.col === 'check',
-    wait: r => r.col === 'wait' || (r.col === 'check' && r.check !== 'inbox'),
+    check: r => !!r.check,   // 같이 볼 것: 📥 받은 요청 + ⏰ 확인할 날(기다림 칸 안)
+    wait: r => r.col === 'wait',
     hold: r => r.status === 'hold',
     inbox: r => r.status === 'inbox',
     idea: r => r.col === 'idea',

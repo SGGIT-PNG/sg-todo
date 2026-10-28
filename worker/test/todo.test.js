@@ -480,14 +480,14 @@ test('⏸ 장기 대기 — 넘기면 기다림 칸(장기)·빨간 표시 없�
   assert.equal(db.store.get('todos/T-0001').holdAt, null); assert.equal(db.store.get('todos/T-0001').checkAt, '');
 });
 
-test('✅ 체크 — 기다린 지 3일이면 체크 칸, 「아직」은 3일 뒤, 2주 넘으면 「계속 기다림」 → 장기 대기', async () => {
+test('⏰ 확인할 날 — 기다린 지 3일이면 기다림 칸 안에 표시, 「아직」은 3일 뒤, 2주 넘으면 「계속 기다림」 → 장기 대기', async () => {
   const db = seed();
   await createTodo(ctxOf(db), { text: '서류 회신', company: '청림테크' });
   await updateTodo(ctxOf(db), 'T-1', { status: 'waiting', waitingFor: '서류', waitOn: 'firm' });
   let t = (await listTodos(db, { view: 'wait' }, NOW + 2 * DAY)).items[0];
   assert.equal(t.col, 'wait'); assert.equal(t.turn, 'firm'); assert.match(t.reason, /📨 2일째 기다림/);
   t = (await listTodos(db, { view: 'check' }, NOW + 3 * DAY)).items[0];
-  assert.equal(t.col, 'check'); assert.equal(t.check, 'due');
+  assert.equal(t.col, 'wait'); assert.equal(t.check, 'due');   // 칸은 기다림 그대로, ⏰ 표시만
   await updateTodo(ctxOf(db, '김학미', 'web', NOW + 3 * DAY), 'T-1', { check: 'later' });
   assert.equal((await listTodos(db, { view: 'check' }, NOW + 4 * DAY)).total, 0);
   assert.equal((await listTodos(db, { view: 'check' }, NOW + 6 * DAY)).total, 1);
