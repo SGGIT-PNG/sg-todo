@@ -224,7 +224,7 @@ main{max-width:1760px;padding:20px 24px 80px;gap:22px;grid-template-columns:minm
 .sec.c-todo>h2{border-left-color:var(--todo);background:linear-gradient(90deg,rgba(116,192,252,.22),rgba(116,192,252,.04));color:#A5D8FF}
 .sec.c-idea>h2{border-left-color:var(--idea);background:linear-gradient(90deg,rgba(56,217,169,.2),rgba(56,217,169,.04));color:#96F2D7}
 .sec.c-hold>h2{border-left-color:var(--hold);background:linear-gradient(90deg,rgba(173,181,189,.18),rgba(173,181,189,.03));color:#DEE2E6}
-/* 📥 받은 요청 · ⏳ 기다림 (2026-10-28 「누구 차례」 — 확인할 날은 칸이 아니라 ⏰ 표시) */
+/* 검토할 일 · ⏳ 기다림 (2026-10-28 「누구 차례」 — 확인할 날은 칸이 아니라 ⏰ 표시) */
 .sec.c-check>h2{border-left-color:#FFD43B;background:linear-gradient(90deg,rgba(255,212,59,.24),rgba(255,212,59,.04));color:#FFE066}
 .sec.c-wait>h2{border-left-color:var(--waiting);background:linear-gradient(90deg,rgba(177,151,252,.22),rgba(177,151,252,.04));color:#D0BFFF}
 .days.check{color:#FFD43B}.days.wait{color:#D0BFFF}.days.org{color:#96F2D7}
@@ -348,7 +348,7 @@ table.mig td,table.mig th{border-bottom-color:var(--border)}
       <div class="qrow">
         <input id="quick" placeholder="할 일 입력 — 예: 하이퍼다인 벤처 서류 독촉 · 내일부터 현장 방문" autocomplete="off" oninput="quickHint()" onkeydown="if(event.key==='Enter'&&!event.isComposing)quickAdd()">
         <button class="btn primary" onclick="quickAdd()">추가</button>
-        <button class="btn" onclick="quickAdd('inbox')" title="업체가 전화·카톡으로 부탁한 일 — 📥 받은 요청 칸에 올라가 둘이 맡을지 정함">📥 받은 요청</button>
+        <button class="btn" onclick="quickAdd('inbox')" title="우리가 생각해 낸 일 — 검토할 일 칸에 올라가 둘이 할지 말지 정함 (업체가 부탁한 일은 그냥 「추가」 = 오늘부터 진행)">검토할 일로</button>
         <button class="btn" onclick="openEdit(null)" title="자세히 추가">＋</button>
       </div>
       <div class="hint" id="quick-hint"></div>
@@ -517,7 +517,7 @@ function rowHtml(t, _i, noCat) {   // noCat: 분야별로 묶인 곳에서는 �
   else if (b.col === 'todo') head = '<span class="days todo">' + core.dayTag('todo', b.days) + '</span><span style="color:var(--text3)">' + md(t._start || core.startOf(t)) + ' 시작</span>';
   else if (b.col === 'call') head = '<span class="days call' + (b.alert ? ' alert' : '') + '">📞 ' + (b.alert ? '놓친 통화 ' + md(t._start || core.startOf(t)) : b.days === 0 ? '오늘' : b.days === 1 ? '내일' : md(t._start || core.startOf(t))) + ' ' + (t.callTime ? esc(t.callTime) : '시간 미정') + '</span>';
   else if (b.col === 'idea') head = '<span class="days idea">💡 제안</span><span style="color:var(--text4)">' + (b.days === 0 ? '오늘 등록' : '등록 ' + b.days + '일 전') + '</span>';
-  else if (b.check === 'inbox') head = '<span class="days check">📥 ' + (b.days === 0 ? '오늘 받음' : '받은 지 ' + b.days + '일') + '</span>';
+  else if (b.check === 'inbox') head = '<span class="days check">' + (b.days === 0 ? '오늘 등록' : '검토 ' + b.days + '일째') + '</span>';
   else if (b.col === 'check' || b.col === 'wait') head = '<span class="days ' + (b.waitOn === 'org' ? 'org' : 'wait') + '">' + waitHead(b) + '</span>'
     + (b.check === 'long' ? '<span class="chip hi">2주 넘음</span>' : b.check === 'due' ? '<span class="chip am">⏰ 오늘 확인</span>' : '') + (b.col === 'wait' && b.checkAt && !b.check ? '<span style="color:var(--text4)">확인 ' + md(b.checkAt) + '</span>' : '');
   else if (done && t.status !== 'cancel') head = '<span class="days done">' + (doneDay(t) ? md(doneDay(t)) + ' 완료' : '완료') + '</span>';
@@ -554,14 +554,14 @@ function stepBtns(t) {
   const id = esc(t._id);
   return core.stageActs(t).map((a, k) => '<button class="btn sm' + (k === 0 && a.to !== '#fail' ? ' primary' : '') + '" onclick="stepAct(\'' + id + '\',\'' + esc(a.id) + '\')"' + (a.to === '#fail' ? ' title="종료(부결)로 완료 칸에 남김"' : '') + '>' + esc(a.label) + (a.to === '#fail' ? ' (종료)' : '') + '</button>').join('');
 }
-// 줄·창에 보일 버튼 — 칸마다 (받은 요청·⏰ 확인할 날은 늘 보임)
+// 줄·창에 보일 버튼 — 칸마다 (검토할 일·⏰ 확인할 날은 늘 보임)
 function actBtns(t, b) {
   const id = esc(t._id), B = (what, txt, title, cls) => '<button class="btn sm' + (cls ? ' ' + cls : '') + '" onclick="act(\'' + id + '\',\'' + what + '\')"' + (title ? ' title="' + title + '"' : '') + '>' + txt + '</button>';
   const flow = !!(t.flow && core.FLOWS[t.flow]);
   if (b.col === 'trash') return B('restore', '되살리기');
   if (b.col === 'done') return '';
   if (b.col === 'idea') return B('ing', '지금 시작', '제안해서 맡게 됨 — 오늘부터 진행') + B('adopt', '날짜 정해 시작', '시작할 날을 정해 예정으로');
-  if (b.check === 'inbox') return B('ing', '맡기 → 진행', '우리 차례 — 진행 칸으로', 'primary') + B('toidea', '제안으로', '지금은 안 맡고 제안 칸에') + B('dropreq', '안 함', '취소로 기록');
+  if (b.check === 'inbox') return B('ing', '하기로 → 진행', '하기로 함 — 오늘부터 진행(우리 차례)', 'primary') + B('toidea', '제안으로', '지금은 안 맡고 제안 칸에') + B('dropreq', '안 함', '취소로 기록');
   if (b.check === 'due' || b.check === 'long') return (flow ? stepBtns(t) : B('ing', b.check === 'long' ? '결과 나옴 → 진행' : '회신 옴 → 진행', '', 'primary'))
     + (b.check === 'long' ? B('long', '계속 기다림', '장기 대기로 — 2주마다 다시 확인') : B('later', '아직', t.status === 'hold' ? '2주 뒤 다시 확인' : '3일 뒤 다시 확인'))
     + (b.check === 'long' ? B('later', '아직(3일 뒤)', '3일 뒤 다시 확인') : '')
@@ -583,8 +583,8 @@ function subRows(list, defs) {
   return defs.map(([name, f]) => { const arr = list.filter(f);
     return arr.length ? '<div class="subhd">' + name + '<span>' + arr.length + '</span></div>' + arr.map(t => rowHtml(t, 0)).join('') : ''; }).join('');
 }
-// 📥 받은 요청 칸 — 업체가 부탁한 일, 맡을지 정하기
-const CHECK_SUBS = [['📥 전화·카톡으로 받은 요청 — 맡을지 정하기', t => t._b.check === 'inbox']];
+// 검토할 일 칸 — 우리가 생각해 낸 일, 할지 말지 둘이 정하기 (업체가 부탁한 일은 바로 진행 — 2026-10-28 사장님)
+const CHECK_SUBS = [['우리가 생각해 낸 일 — 할지 말지 정하기', t => t._b.check === 'inbox']];
 // ⏳ 기다림: ⏰ 오늘 확인할 것(기다린 지 3일·2주 넘음 — 칸은 그대로, 맨 위에 노랗게) → 📨 업체 → 🏛 기관 → 🗄 장기 대기 → 🗂 내부
 const chk = t => t._b.check === 'due' || t._b.check === 'long';
 const WAIT_SUBS = [['⏰ 오늘 확인할 것 — 회신·결과 왔나요?', chk],
@@ -652,7 +652,7 @@ function render() {
   const counts = '<div class="counts">'
     + (lNew + lCall ? '<div class="lead" onclick="setView(\'leads\')"><b style="color:' + (lAlert ? 'var(--danger)' : '#DB2777') + '">' + (lNew + lCall) + '</b><span>📣 광고 DB 전화 (새 ' + lNew + ')</span></div>' : '')
     + '<div><b style="color:' + (missed ? 'var(--danger)' : 'var(--call)') + '">' + (callsToday + missed) + '</b><span>' + (missed ? '📞 오늘·놓친 통화' : '📞 오늘 통화') + '</span></div>'
-    + '<div><b style="color:' + (g.check.length ? '#FFD43B' : 'var(--text4)') + '">' + g.check.length + '</b><span>📥 받은 요청</span></div>'
+    + '<div><b style="color:' + (g.check.length ? '#FFD43B' : 'var(--text4)') + '">' + g.check.length + '</b><span>검토할 일</span></div>'
     + '<div><b style="color:' + (dueN ? '#FFD43B' : 'var(--text4)') + '">' + dueN + '</b><span>⏰ 오늘 확인할 것</span></div>'
     + '<div><b style="color:' + (alerts ? 'var(--danger)' : 'var(--ing)') + '">' + g.ing.length + '</b><span>🟠 우리 차례' + (alerts ? ' (🔴' + alerts + ')' : '') + '</span></div>'
     + '<div><b style="color:var(--waiting)">' + g.wait.length + '</b><span>⏳ 기다림</span></div>'
@@ -668,7 +668,7 @@ function render() {
     // 🗂 보드(2026-10-17 사장님: TV 현황 느낌) — 넓은 화면: 진행 │ 통화·예정·제안 │ 광고 DB·완료, 휴대폰은 위에서 아래로
     el.innerHTML = counts + warn + '<div class="board">'
       + '<div class="bcol">'
-        + section('📥 받은 요청', '업체가 전화·카톡으로 부탁한 일 · 두 대표가 같이 보고 맡을지 정함', g.check, true, 'c-check', 'check')
+        + section('검토할 일', '우리가 생각해 낸 일 · 두 대표가 같이 보고 할지 말지 정함', g.check, true, 'c-check', 'check')
         + section('🟠 진행 — 우리 차례', '시작일이 온 일 · 며칠째인지 · 업무 분야별', g.ing, true, 'c-ing', true)
       + '</div>'
       + '<div class="bcol">'
@@ -905,7 +905,7 @@ async function act(id, what) {
     else if (what === 'long') { await api('PATCH', '/api/todos/' + L, { check: 'long' }); toast(L + ' 계속 기다림 → 장기 대기 (2주마다 확인)'); closeModal(); }
     else if (what === 'toidea') { await api('PATCH', '/api/todos/' + L, { status: 'idea' }); toast(L + ' → 💡 제안'); closeModal(); }
     else if (what === 'dropreq') {
-      if (!confirm(L + ' 받은 요청을 안 하기로 할까요? (취소로 기록)')) return;
+      if (!confirm(L + ' 안 하기로 할까요? (취소로 기록)')) return;
       await api('PATCH', '/api/todos/' + L, { status: 'cancel' }); toast(L + ' 안 함(취소)'); closeModal();
     }
     else if (what === 'nudge') {   // 📞 독촉·확인 통화 — 통화 칸에 약속을 잡고 이 일은 3일 뒤 다시 확인
@@ -1065,7 +1065,7 @@ function parseQuick(raw) {
 }
 function quickHint() {
   const v = document.getElementById('quick').value, el = document.getElementById('quick-hint');
-  if (!v.trim()) { el.textContent = 'Enter로 저장. 시작일은 오늘 — 「내일부터」「10/20」이면 그날 시작(예정 업무), 「10/30까지」는 마감. 맨 앞에 「제안」을 쓰면 💡 제안 업무(날짜는 적었을 때만). 「내일 2시 ○○ 통화」는 📞 통화. 업체가 부탁한 일은 「📥 받은 요청」 버튼 → 받은 요청 칸. 기업명은 알아서 연결합니다.'; return; }
+  if (!v.trim()) { el.textContent = 'Enter로 저장. 시작일은 오늘 — 「내일부터」「10/20」이면 그날 시작(예정 업무), 「10/30까지」는 마감. 맨 앞에 「제안」을 쓰면 💡 제안 업무(날짜는 적었을 때만). 「내일 2시 ○○ 통화」는 📞 통화. 할지 말지 정할 우리 생각은 「검토할 일로」 버튼. 기업명은 알아서 연결합니다.'; return; }
   const p = parseQuick(v);
   const today = core.kstToday();
   el.innerHTML = '→ ' + (p.co ? '🏢 <b>' + esc(p.co.name) + '</b>' : '기업 없음')
@@ -1074,9 +1074,9 @@ function quickHint() {
     + (p.due ? (p.idea ? ' · 종료 <b>' : ' · ⏰ 마감 <b>') + p.due + '</b>' : '');
 }
 async function quickAdd(as) {
-  const inp = document.getElementById('quick'); const raw = inp.value.trim(); if (!raw) { if (as === 'inbox') toast('받은 요청 내용을 먼저 적어 주세요 (예: 대동서천 상품가입 보고서 요청)', true); return; }
+  const inp = document.getElementById('quick'); const raw = inp.value.trim(); if (!raw) { if (as === 'inbox') toast('검토할 일 내용을 먼저 적어 주세요 (예: 김종휘 세무사에게 가지급금 해결 방법 알아보기)', true); return; }
   const p = parseQuick(raw);
-  if (as === 'inbox' || /^📥/.test(raw)) { p.inbox = true; p.call = false; p.idea = false; p.text = p.text.replace(/^📥\s*/, ''); }
+  if (as === 'inbox') { p.inbox = true; p.call = false; p.idea = false; }
   try {
     const body = { text: p.text }; if (p.start) body.start = p.start; if (p.due) body.due = p.due; if (p.idea) body.status = 'idea'; if (p.inbox) body.status = 'inbox';
     if (p.call) { body.kind = 'call'; if (p.time) body.time = p.time; }
@@ -1105,7 +1105,7 @@ function openEdit(id) {
     + '</div>'
     + '<div class="grid2">'
       + '<div class="fg"><label>상태</label><select id="f-status" onchange="fStatusChange(this.value)">'
-        + opt([['inbox', '📥 받은 요청 (맡을지 정하기)'], ['wait', '🟠 진행 (우리 차례)'], ['waiting', '⏳ 기다림 (업체·기관 차례)'], ['hold:reply', '🗄 장기 대기 — 회신'], ['hold:internal', '🗂 장기 대기 — 내부'], ['idea', '💡 제안 (아직 안 맡음)']].concat(t ? [['done', '완료'], ['cancel', '취소(안 하기로 함)']] : []), t ? (t.status === 'ing' ? 'wait' : t.status === 'hold' ? 'hold:' + core.holdKindOf(t) : t.status) : 'wait') + '</select></div>'
+        + opt([['inbox', '검토할 일 (할지 말지 정하기)'], ['wait', '🟠 진행 (우리 차례)'], ['waiting', '⏳ 기다림 (업체·기관 차례)'], ['hold:reply', '🗄 장기 대기 — 회신'], ['hold:internal', '🗂 장기 대기 — 내부'], ['idea', '💡 제안 (아직 안 맡음)']].concat(t ? [['done', '완료'], ['cancel', '취소(안 하기로 함)']] : []), t ? (t.status === 'ing' ? 'wait' : t.status === 'hold' ? 'hold:' + core.holdKindOf(t) : t.status) : 'wait') + '</select></div>'
       + '<div class="fg"><label>&nbsp;</label><label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--text)"><input type="checkbox" id="f-hi" style="width:auto"' + (t && t.priority === 'high' ? ' checked' : '') + '> <span style="color:#DC2626">★</span> 긴급</label></div>'
     + '</div>'
     + '<div class="grid2' + (t && (t.status === 'waiting' || (t.status === 'hold' && core.holdKindOf(t) === 'reply')) ? '' : ' hidden') + '" id="f-wbox">'

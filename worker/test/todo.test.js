@@ -496,10 +496,10 @@ test('⏰ 확인할 날 — 기다린 지 3일이면 기다림 칸 안에 표시
   await updateTodo(ctxOf(db, '정석진', 'web', NOW + 14 * DAY), 'T-1', { check: 'long' });
   const d = db.store.get('todos/T-0001');
   assert.equal(d.status, 'hold'); assert.equal(d.holdKind, 'reply'); assert.equal(d.checkAt, '2026-11-05');
-  // 받은 요청 → 체크 칸 맨 위, 맡기면 진행
+  // 검토할 일 → 검토할 일 칸, 하기로 하면 진행
   await createTodo(ctxOf(db), { text: '상품가입 내역 보고서', company: '하이퍼다인', status: 'inbox' });
   t = (await listTodos(db, { view: 'check' }, NOW)).items[0];
-  assert.equal(t.check, 'inbox'); assert.match(t.reason, /오늘 받은 요청/);
+  assert.equal(t.check, 'inbox'); assert.match(t.reason, /오늘 등록/);
   await updateTodo(ctxOf(db), 'T-2', { status: 'ing', due: '11/3' });
   assert.equal((await listTodos(db, { view: 'ing' }, NOW)).items[0].label, 'T-0002');
 });
