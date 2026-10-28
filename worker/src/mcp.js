@@ -16,10 +16,10 @@ const INSTRUCTIONS = 'SG솔루션 할 일(T-번호) 도구. 할 일을 넣거나
   + '대화나 프로젝트 지침에 이름이 없으면 먼저 물어본다. 기업은 이름이나 사업자번호로 company에 넣고, 후보가 여럿이라고 하면 사용자에게 골라 달라고 한다. '
   + '번호는 T-0123 형식. 삭제는 휴지통(30일 안에 todo_restore로 되살림). 「안 하기로 한 일」은 삭제가 아니라 status=cancel. '
   + '할 일을 넣을 때 category(업무 분야)를 내용에 맞게 하나 고른다(정책자금·지원사업·벤처·연구소·특허·ISO·자금조달·확인서·재무·기타). 화면이 칸 안을 분야별로 묶는다. '
-  + '칸은 「지금 누구 차례인가」로 나뉜다 — ✅ 체크(두 대표가 같이 보는 칸: 📥 받은 요청 + 기다린 지 3일 된 일 + 2주 넘게 기다린 일) · 🟠 진행(우리 차례) · ⏳ 기다림(📨 업체 차례·🏛 기관 차례·장기 대기) · 📅 예정(날짜 차례, 시작일이 앞날) · 📞 통화 · 💡 제안 · 완료. 시작일 기본은 오늘이고, 「내일부터」「다음 주 월요일부터」처럼 말하면 start에 그 날짜를 넣는다. '
+  + '칸은 「지금 누구 차례인가」로 나뉜다 — 📥 받은 요청(두 대표가 같이 보고 맡을지 정함) · 🟠 진행(우리 차례) · ⏳ 기다림(📨 업체 차례·🏛 기관 차례·장기 대기 — 확인할 날이 되면 칸 맨 위 ⏰ 오늘 확인할 것에 표시, 칸은 그대로) · 📅 예정(날짜 차례, 시작일이 앞날) · 📞 통화 · 💡 제안 · 완료. 시작일 기본은 오늘이고, 「내일부터」「다음 주 월요일부터」처럼 말하면 start에 그 날짜를 넣는다. '
   + '「어제 끝냈어」처럼 끝낸 날을 말하면 todo_complete의 date에 넣는다. '
-  + '📥 받은 요청 = 업체가 전화·카톡으로 부탁한 일(아직 맡을지 안 정함) → todo_add status=inbox. 체크 칸에서 맡기로 하면 status=ing, 제안으로 돌리면 idea, 안 하면 cancel. '
-  + '⏳ 기다림 = 업체·기관에 넘긴 일 → status=waiting + waitOn(firm 업체 · org 기관) + waitingFor(무엇을). 기다린 지 3일이 되면 체크 칸에 올라온다 → 회신 오면 status=ing(또는 단계 버튼), 아직이면 check=later(3일 뒤 다시), 2주 넘으면 「계속 기다릴까요?」 → 계속이면 check=long(장기 대기, 2주마다 다시 체크). 기관 발표처럼 날짜를 모르는 일도 같은 규칙. '
+  + '📥 받은 요청 = 업체가 전화·카톡으로 부탁한 일(아직 맡을지 안 정함) → todo_add status=inbox. 받은 요청 칸에서 맡기로 하면 status=ing, 제안으로 돌리면 idea, 안 하면 cancel. '
+  + '⏳ 기다림 = 업체·기관에 넘긴 일 → status=waiting + waitOn(firm 업체 · org 기관) + waitingFor(무엇을). 기다린 지 3일이 되면 기다림 칸 맨 위 ⏰ 오늘 확인할 것에 뜬다(「체크할 거」 = todo_list view=check) → 회신 오면 status=ing(또는 단계 버튼), 아직이면 check=later(3일 뒤 다시), 2주 넘으면 「계속 기다릴까요?」 → 계속이면 check=long(장기 대기, 2주마다 다시 체크). 기관 발표처럼 날짜를 모르는 일도 같은 규칙. '
   + '🪜 업무 종류(flow)별 단계 — ' + FLOW_IDS.map(id => id + ' ' + FLOWS[id].name + '(' + FLOWS[id].steps.map(s => s.label).join('→') + ')').join(' · ') + '. 업무 분야가 맞으면 todo_add에 flow를 넣는다(stage를 말하지 않으면 첫 단계). 소식이 오면 todo_update step=버튼 이름(「신청 완료」「승인」「부결」「합격」「보완 나옴」「보완 제출」「심사 끝」 등 — todo_get이 지금 누를 수 있는 버튼을 알려 줌, 날짜가 필요한 단계는 date). 부결·불합격·미발급은 「종료(부결)」로 완료 칸에 남는다(통계). 단계 없는 일은 flow를 넣지 않는다. '
   + '📞 통화 칸에는 날짜·시각을 정한 약속만 넣는다. 날짜 없는 「○○ 세무사 통화해 봐야 함」은 그 업무의 다음 할 일(memo 또는 그 업무 text)로 둔다. '
   + '📞 통화 = 「언제 몇 시에 누구에게 전화」(업무가 아님) → todo_add kind=call, start=통화 날짜(기본 오늘), time=시각(「오후 2시」「14:00」, 모르면 비움). 통화는 업무 칸이 아니라 통화 칸에 나온다. 통화했다고 하면 todo_complete. 목록은 todo_list view=call. '
@@ -54,7 +54,7 @@ const FIELDS = {
   start: START,
   time: { type: 'string', description: '📞 통화 시각(kind=call일 때) — 14:00 · 오후 2시 · 2시 반 · 오전 10시 30분. 넣으면 통화로 본다. 빈 문자열이면 시간 미정' },
   due: DUE,
-  status: { type: 'string', enum: STATUSES, description: '보통은 넣지 않는다(칸은 시작일로 정해짐). inbox = 📥 받은 요청(업체가 부탁한 일, 아직 맡을지 안 정함 — 체크 칸) · idea = 제안 업무(아직 맡지 않은, 우리가 먼저 제안할 일 — 날짜와 상관없이 제안 칸) · hold = ⏸ 장기 대기(오래 기다릴 일을 진행 업무에서 빼 둠, 빨간 표시 없음 — 사용자가 넘겨 달라고 할 때만) · waiting = ⏳ 기다림 칸(업체·기관 차례 — 누구는 waitOn, 무엇을은 waitingFor, 3일마다 체크 칸에 올라옴) · ing = 지금 시작(시작일이 앞날이면 오늘로 당김) · wait = 기다림 꼬리표 떼기·다시 열기 · done 완료 · cancel 취소(안 하기로 함)' },
+  status: { type: 'string', enum: STATUSES, description: '보통은 넣지 않는다(칸은 시작일로 정해짐). inbox = 📥 받은 요청(업체가 부탁한 일, 아직 맡을지 안 정함 — 받은 요청 칸) · idea = 제안 업무(아직 맡지 않은, 우리가 먼저 제안할 일 — 날짜와 상관없이 제안 칸) · hold = ⏸ 장기 대기(오래 기다릴 일을 진행 업무에서 빼 둠, 빨간 표시 없음 — 사용자가 넘겨 달라고 할 때만) · waiting = ⏳ 기다림 칸(업체·기관 차례 — 누구는 waitOn, 무엇을은 waitingFor, 3일마다 ⏰ 확인 표시) · ing = 지금 시작(시작일이 앞날이면 오늘로 당김) · wait = 기다림 꼬리표 떼기·다시 열기 · done 완료 · cancel 취소(안 하기로 함)' },
   waitingFor: { type: 'string', description: '기다리는 대상 (예: 「고객 서류 회신」)' },
   waitOn: { type: 'string', enum: ['', 'firm', 'org'], description: '기다림(status=waiting)일 때 누구 차례인지 — firm = 📨 업체 · org = 🏛 기관(정부·인증원 등). 단계(flow)가 있으면 단계가 정함' },
   flow: { type: 'string', enum: ['', ...FLOW_IDS], description: '업무 종류(단계가 있는 일만) — ' + FLOW_IDS.map(id => id + ' ' + FLOWS[id].name).join(' · ') + '. 그 밖의 일은 비움' },
@@ -86,17 +86,17 @@ export const TOOLS = [
   },
   {
     name: 'todo_update', title: '할 일 수정',
-    description: '할 일의 내용·시작일·마감·기업·메모 등을 바꾼다. 바꿀 항목만 넣는다. 미루기=start(시작일을 뒤로) · 당기기/지금 시작=start 오늘 · 받은 요청 맡기=status ing · 기다림=status waiting(+waitOn firm/org, waitingFor) · 기다림 끝=status ing · 단계 넘기기=step(버튼 이름) · 체크 칸 「아직」=check later · 「계속 기다림」=check long · 장기 대기로 넘김=status hold · 장기 대기에서 다시 진행=status ing · 다시 열기=status wait · 취소=status cancel · 마감=due · 제안을 맡게 됨=status ing(오늘부터) 또는 status wait+start(그 날부터) · 제안 접음=status cancel.',
+    description: '할 일의 내용·시작일·마감·기업·메모 등을 바꾼다. 바꿀 항목만 넣는다. 미루기=start(시작일을 뒤로) · 당기기/지금 시작=start 오늘 · 받은 요청 맡기=status ing · 기다림=status waiting(+waitOn firm/org, waitingFor) · 기다림 끝=status ing · 단계 넘기기=step(버튼 이름) · 확인할 날 「아직」=check later · 「계속 기다림」=check long · 장기 대기로 넘김=status hold · 장기 대기에서 다시 진행=status ing · 다시 열기=status wait · 취소=status cancel · 마감=due · 제안을 맡게 됨=status ing(오늘부터) 또는 status wait+start(그 날부터) · 제안 접음=status cancel.',
     inputSchema: { type: 'object', required: ['no', 'author'], properties: Object.assign({ no: NO, author: AUTHOR }, pick(['text', 'start', 'time', 'status', 'due', 'waitingFor', 'waitOn', 'holdKind', 'flow', 'stage', 'company', 'kind', 'category', 'priority', 'memo', 'repeat']),
       { step: { type: 'string', description: '단계 버튼 누르기 — 버튼 이름(「신청 완료」「승인」「부결」「합격」「보완 나옴」「보완 제출」「심사 끝」「발송 완료」「인증서 발급」 등, todo_get에 ▶로 나옴). 날짜가 필요한 버튼(「실사 날짜 정함」「심사 날짜 정함」)은 date도' },
         date: { type: 'string', description: 'step과 함께 — 단계 날짜(실사일·심사일). 형식은 start와 같음' },
-        check: { type: 'string', enum: ['later', 'long'], description: '체크 칸에서 — later = 아직(3일 뒤 다시 체크) · long = 계속 기다림(장기 대기로, 2주마다 다시 체크)' },
+        check: { type: 'string', enum: ['later', 'long'], description: '⏰ 확인할 날에 — later = 아직(3일 뒤 다시 체크) · long = 계속 기다림(장기 대기로, 2주마다 다시 체크)' },
         memoAppend: { type: 'string', description: '메모 끝에 날짜와 함께 한 줄 덧붙임' } }) },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: 'todo_list', title: '할 일 목록',
-    description: '할 일 목록 — 웹 화면과 같은 칸. check = ✅ 체크(받은 요청·확인할 날·2주 넘음 — 두 대표가 같이 볼 것), wait = ⏳ 기다림(업체·기관 차례·장기 대기), inbox = 📥 받은 요청만, call = 📞 통화(날짜·시각 순, 놓친 통화 포함), open = 체크+진행+기다림+예정, idea = 제안 업무, hold = ⏸ 장기 대기, all = open+제안+장기 대기(기업별로 볼 때), ing = 진행 업무(시작일 지남, 오늘 시작·+N일), todo = 예정 업무(시작 전, -N일), done = 완료 업무(최근 순), alert = 빨간 표시(마감 지남·14일 넘게 끈 일), waiting = 기다리는 중 꼬리표, week = 7일 안 마감, trash = 휴지통.',
+    description: '할 일 목록 — 웹 화면과 같은 칸. check = 같이 볼 것(📥 받은 요청 + ⏰ 확인할 날·2주 넘음), wait = ⏳ 기다림(업체·기관 차례·장기 대기), inbox = 📥 받은 요청만, call = 📞 통화(날짜·시각 순, 놓친 통화 포함), open = 받은 요청+진행+기다림+예정, idea = 제안 업무, hold = ⏸ 장기 대기, all = open+제안+장기 대기(기업별로 볼 때), ing = 진행 업무(시작일 지남, 오늘 시작·+N일), todo = 예정 업무(시작 전, -N일), done = 완료 업무(최근 순), alert = 빨간 표시(마감 지남·14일 넘게 끈 일), waiting = 기다리는 중 꼬리표, week = 7일 안 마감, trash = 휴지통.',
     inputSchema: { type: 'object', properties: {
       view: { type: 'string', enum: ['open', 'check', 'call', 'ing', 'wait', 'todo', 'hold', 'inbox', 'idea', 'all', 'done', 'alert', 'waiting', 'week', 'trash'], description: '기본 open' },
       company: { type: 'string', description: '기업 이름(일부) 또는 사업자번호로 거르기' },
@@ -251,10 +251,10 @@ function missBlock(d) {
   return missTxt('SG가 정할 칸', by(req, 'sg').concat(by(opt, 'sg'))) + missTxt('기업 요청(필수)', by(req, 'client')) + missTxt('기업 요청(권장)', by(opt, 'client'));
 }
 const catTxt = (c) => c ? ' {' + (CAT_LABEL[c] || c) + '}' : '';
-const SHORT = { check: '✅ 체크', call: '📞 통화', ing: '진행', wait: '⏳ 기다림', todo: '예정', hold: '⏸ 장기 대기', idea: '💡 제안', done: '완료', trash: '휴지통' };
+const SHORT = { check: '📥 받은 요청', call: '📞 통화', ing: '진행', wait: '⏳ 기다림', todo: '예정', hold: '⏸ 장기 대기', idea: '💡 제안', done: '완료', trash: '휴지통' };
 const md = (ds) => ds ? ds.slice(5).replace('-', '/') : '';
 function line(r) {
-  const tag = (r.col === 'check' ? '✅ 체크(' + ({ inbox: '받은 요청', due: '확인할 날', long: '2주 넘음' }[r.check] || '') + ')' : r.status === 'hold' ? HOLD_LABEL[r.holdKind] || SHORT.hold : SHORT[r.col] || r.col) + (r.reason ? ' · ' + r.reason : '') + (r.alert ? ' 🔴' : '') + (r.acts && r.acts.length ? ' ▶ ' + r.acts.join('/') : '');
+  const tag = (r.status === 'hold' ? HOLD_LABEL[r.holdKind] || SHORT.hold : SHORT[r.col] || r.col) + ({ due: ' · ⏰ 오늘 확인', long: ' · ⌛ 2주 넘음 — 계속 기다릴까요?' }[r.check] || '') + (r.reason ? ' · ' + r.reason : '') + (r.alert ? ' 🔴' : '') + (r.acts && r.acts.length ? ' ▶ ' + r.acts.join('/') : '');
   return r.label + ' [' + tag + '] ' + (r.companyName ? r.companyName + ' — ' : '') + r.text
     + (r.col === 'todo' ? ' (' + md(r.startDate) + ' 시작)' : '') + catTxt(r.category) + (r.createdBy ? ' · ' + r.createdBy : '');
 }
@@ -314,7 +314,7 @@ export async function callTool(name, args, { db, email, nowMs, env = {}, fetchFn
       const r = await createTodo(ctx, fields, ref ? { source: 'chat', sourceRef: String(ref) } : { source: 'chat', checkRecentDup: true });
       const t = r.todo;
       const today = kstToday(nowMs);
-      const where = t.kind === 'call' && t.status !== 'idea' ? ' · 📞 통화 ' + t.startDate + (t.callTime ? ' ' + t.callTime : ' (시간 미정)') : t.status === 'idea' ? ' · 💡 제안 업무' + (t.startDate ? '(시작 ' + t.startDate + ')' : '') : t.status === 'inbox' ? ' · ✅ 체크(📥 받은 요청)' : t.status === 'waiting' ? ' · ⏳ 기다림(' + (t.waitOn === 'org' ? '🏛 기관' : '📨 업체') + ' 차례)' : t.status === 'hold' ? ' · ⏸ ' + HOLD_LABEL[holdKindOf(t)].replace(/^\S+ /, '') : t.startDate > today ? ' · 예정 업무(' + t.startDate + ' 시작)' : ' · 진행 업무';
+      const where = t.kind === 'call' && t.status !== 'idea' ? ' · 📞 통화 ' + t.startDate + (t.callTime ? ' ' + t.callTime : ' (시간 미정)') : t.status === 'idea' ? ' · 💡 제안 업무' + (t.startDate ? '(시작 ' + t.startDate + ')' : '') : t.status === 'inbox' ? ' · 📥 받은 요청' : t.status === 'waiting' ? ' · ⏳ 기다림(' + (t.waitOn === 'org' ? '🏛 기관' : '📨 업체') + ' 차례)' : t.status === 'hold' ? ' · ⏸ ' + HOLD_LABEL[holdKindOf(t)].replace(/^\S+ /, '') : t.startDate > today ? ' · 예정 업무(' + t.startDate + ' 시작)' : ' · 진행 업무';
       const tail = (t.companyName ? ' · ' + t.companyName : '') + where + (t.dueDate ? (t.status === 'idea' ? ' · 종료 ' : ' · 마감 ') + t.dueDate : '')  + (t.priority === 'high' ? ' · 긴급' : '');
       return r.created ? r.label + ' 저장됨' + tail + ' — ' + t.text : '이미 있는 할 일이라 새로 만들지 않았습니다: ' + r.label + tail + ' — ' + t.text;
     }
@@ -340,7 +340,7 @@ export async function callTool(name, args, { db, email, nowMs, env = {}, fetchFn
     }
     case 'todo_list': {
       const r = await listTodos(db, { view: rest.view || 'open', company: rest.company || '', category: rest.category || '', query: rest.query || '', limit: Number(rest.limit) || 30 }, nowMs);
-      const names = { check: COL_LABEL.check, wait: COL_LABEL.wait, hold: '장기 대기', inbox: '📥 받은 요청', call: '📞 통화', open: '체크 + 진행 + 기다림 + 예정', all: '체크 + 진행 + 기다림 + 예정 + 제안 + 통화', idea: COL_LABEL.idea, ing: COL_LABEL.ing, todo: COL_LABEL.todo, done: COL_LABEL.done + '(최근 순)', alert: '빨간 표시(마감 지남·오래 끈 일)', waiting: '기다리는 중', week: '7일 안 마감', trash: '휴지통' };
+      const names = { check: '같이 볼 것(📥 받은 요청 + ⏰ 확인할 날)', wait: COL_LABEL.wait, hold: '장기 대기', inbox: '📥 받은 요청', call: '📞 통화', open: '받은 요청 + 진행 + 기다림 + 예정', all: '받은 요청 + 진행 + 기다림 + 예정 + 제안 + 통화', idea: COL_LABEL.idea, ing: COL_LABEL.ing, todo: COL_LABEL.todo, done: COL_LABEL.done + '(최근 순)', alert: '빨간 표시(마감 지남·오래 끈 일)', waiting: '기다리는 중', week: '7일 안 마감', trash: '휴지통' };
       const head = names[r.view] + ' ' + r.total + '건' + (r.items.length < r.total ? ' (앞 ' + r.items.length + '건)' : '') + ' · 오늘 ' + kstToday(nowMs);
       return r.items.length ? head + '\n' + r.items.map(line).join('\n') : head + '\n(없음)';
     }
