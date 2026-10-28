@@ -166,7 +166,7 @@ test('MCP 도구 — 추가·완료·수정·조회·바뀐 것·삭제·되살�
   assert.equal(t1.source, 'chat'); assert.equal(t1.createdBy, '정석진');
   // 조회
   r = await tool('todo_list', {});
-  assert.match(r.text, /진행 업무 \+ 예정 업무 2건/);
+  assert.match(r.text, /체크 \+ 진행 \+ 기다림 \+ 예정 2건/);
   assert.match(r.text, /T-0001 \[진행 · 오늘 시작 · 마감 D-2\] ㈜하이퍼다인 — 벤처 서류 요청 · 정석진/);
   // 「내일부터」 → 예정 업무
   r = await tool('todo_add', { text: '현장 방문', start: '내일', author: '김학미' });
@@ -178,7 +178,7 @@ test('MCP 도구 — 추가·완료·수정·조회·바뀐 것·삭제·되살�
   r = await tool('todo_update', { no: 'T-0001', status: 'waiting', waitingFor: '고객 서류 회신', due: '10/15', author: '김학미' });
   assert.match(r.text, /T-0001 수정됨: .*상태 → 기다리는 중/);
   r = await tool('todo_list', { view: 'waiting' });
-  assert.match(r.text, /T-0001 \[진행 · 오늘 시작 · ⏳ 고객 서류 회신 · 마감 D-7\]/);
+  assert.match(r.text, /T-0001 \[⏳ 기다림 · 📨 오늘부터 기다림 · ⏳ 고객 서류 회신 · 마감 10\/15 · 확인 10\/11\]/);   // 2026-10-28 기다림 칸 · 3일 뒤 확인
   // 완료 — 여러 개, 반복은 다음 회차
   r = await tool('todo_complete', { no: ['T-0001', 2, 'T-0099'], author: '정석진', note: '접수 완료' });
   assert.match(r.text, /T-0001 완료\(2026-10-08\)/); assert.match(r.text, /T-0002 완료\(2026-10-08\) .*다음 회차 T-0004, 2026-11-07 시작 · 마감 2026-11-30/); assert.match(r.text, /T-0099 실패: 없는 할 일/);
@@ -195,7 +195,7 @@ test('MCP 도구 — 추가·완료·수정·조회·바뀐 것·삭제·되살�
   // 삭제 → 목록에서 빠짐 → 되살리기
   r = await tool('todo_delete', { no: 'T-0004', reason: '잘못 넣음', author: '공동' });
   assert.match(r.text, /T-0004 휴지통으로 옮김 \(2026-11-07까지/);
-  assert.match((await tool('todo_list', { view: 'open' })).text, /예정 업무 0건/);
+  assert.match((await tool('todo_list', { view: 'open' })).text, /기다림 \+ 예정 0건/);
   assert.match((await tool('todo_restore', { no: 'T-0004', author: '공동' })).text, /T-0004 되살림/);
   // 바뀐 것
   r = await tool('todo_changes', { since: '1h' }, NOW + 1000);
@@ -214,6 +214,17 @@ test('MCP 도구 — 추가·완료·수정·조회·바뀐 것·삭제·되살�
   assert.match(r.text, /💡 제안 업무\(시작 2026-10-20\) · 종료 2026-10-30/);
   r = await tool('todo_delete', { no: r.text.match(/^T-\d+/)[0], reason: '시험', author: '정석진' });
   assert.match((await tool('todo_list', { view: 'idea' })).text, /제안 업무 1건[^\n]*\nT-\d+ \[💡 제안 · 오늘 등록\] ㈜하이퍼다인 — ISO 인증 제안/);
+  // ✅ 체크·단계 (단계 버튼은 step)
+  r = await tool('todo_add', { text: '상품가입 보고서 요청', company: '하이퍼다인', status: 'inbox', author: '정석진' });
+  assert.match((await tool('todo_list', { view: 'check' })).text, /✅ 체크\(받은 요청\)/);
+  r = await tool('todo_add', { text: '정책자금 신청', company: '청림테크', category: 'policy', flow: 'policy', author: '정석진' });
+  const pno = r.text.match(/^T-\d+/)[0];
+  assert.match((await tool('todo_get', { no: pno })).text, /【사이트 신청】[\s\S]*누를 수 있는 버튼\(step\): 신청 완료/);
+  r = await tool('todo_update', { no: pno, step: '신청 완료', author: '정석진' });
+  assert.match(r.text, /단계 → decide/);
+  assert.match((await tool('todo_get', { no: pno })).text, /차례: 🏛 기관 차례 · 다시 볼 날 2026-10-11[\s\S]*승인 \/ 부결 \/ 보완 나옴/);
+  r = await tool('todo_update', { no: pno, step: '부결', author: '정석진' });
+  assert.match(r.text, /종료\(부결\)/);
   // 기업 찾기
   assert.match((await tool('company_find', { query: '청림' })).text, /후보 2곳/);
   assert.equal((await tool('company_find', { query: '1111111111' })).text, '㈜하이퍼다인 · 111-11-11111');

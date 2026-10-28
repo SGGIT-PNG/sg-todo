@@ -4,6 +4,7 @@
 import {
   RuleError, cleanPatch, applyChange, newTodo, noLabel, parseNo, bucket, summarize, kstToday,
   resolveCompany, findCompanyInText, nextRepeatDate, RULES_DEFAULT, TRASH_DAYS, SOURCES, addDays, daysBetween, startOf,
+  stepPatch, checkLaterPatch, longWaitPatch, parseDue, FLOWS, stageOf, stageActs,
 } from './core.js';
 
 const SEQ_PATH = 'app_state/todo_seq';
@@ -75,6 +76,15 @@ export async function createTodo(ctx, input, opts = {}) {
   const source = opts.source || 'manual';
   if (!SOURCES.includes(source)) throw new RuleError('알 수 없는 출처입니다: ' + source);
   const fields = cleanPatch(input, { nowMs, creating: true });
+  if (fields.flow) {   // 업무 종류를 정해 넣으면 첫 단계(또는 말한 단계)부터 — 기관 차례 단계면 기다림으로
+    const st = FLOWS[fields.flow].steps, sg = st.find(x => x.k === fields.stage) || st[0];
+    fields.stage = sg.k;
+    if (sg.turn === 'org' && !fields.status) { fields.status = 'waiting'; fields.waitOn = 'org'; }
+    if (sg.turn === 'date') {   // 날짜 단계: 날짜를 알면 예정, 모르면 일정 정해지길 기다림(기관 차례)
+      if (fields.startDate && fields.startDate > kstToday(nowMs)) fields.stageDate = fields.startDate;
+      else if (!fields.status) { fields.status = 'waiting'; fields.waitOn = 'org'; }
+    }
+  }
   const companies = ctx.companies || await loadCompanies(db);
   applyCompany(fields, input, companies, { autoFromText: opts.autoCompany !== false });
   if (fields.status === 'done' || fields.status === 'cancel') throw new RuleError('새 할 일은 완료·취소 상태로 만들 수 없습니다');
@@ -103,7 +113,10 @@ export async function createTodo(ctx, input, opts = {}) {
 // ── 수정 (상태 변경·완료·다시 열기·미루기·메모 덧붙이기 모두 여기로) ──
 export async function updateTodo(ctx, noInput, input) {
   const { db, actor, nowMs = Date.now() } = ctx;
-  const upd = cleanPatch(input, { nowMs });
+  // step = 단계 버튼(「승인」「보완 나옴」…) · check = 체크 칸 버튼(later 아직 · long 계속 기다림) — 지금 문서를 보고 바꿀 값을 정한다
+  const { step, check, date: stepDate, ...rest } = input || {};
+  input = rest;
+  const upd = (step || check) && !Object.keys(input).length ? {} : cleanPatch(input, { nowMs });
   const needCompanies = 'company' in input || ('bizno' in upd && upd.bizno);
   const companies = needCompanies ? (ctx.companies || await loadCompanies(db)) : [];
   if (needCompanies) applyCompany(upd, input, companies, { autoFromText: false });
@@ -116,6 +129,10 @@ export async function updateTodo(ctx, noInput, input) {
       const line = kstToday(nowMs).slice(5).replace('-', '/') + ' ' + String(input.memoAppend).trim();
       upd.memo = ((('memo' in upd ? upd.memo : old.memo) || '').trim() + '\n' + line).trim();
     }
+    if (step) Object.assign(upd, stepPatch(Object.assign({}, old, upd), String(step), { date: stepDate ? parseDue(stepDate, nowMs) : '', nowMs }));
+    if (check === 'later') Object.assign(upd, checkLaterPatch(old, nowMs));
+    else if (check === 'long') Object.assign(upd, longWaitPatch(old, nowMs));
+    else if (check) throw new RuleError('check는 later(아직)·long(계속 기다림) 중 하나입니다');
     const { write, changes } = applyChange(old, upd, actor, nowMs);
     if (!Object.keys(write).length) return { changed: false, todo: old, label: noLabel(old.no) };
     const after = Object.assign({}, old, write);
@@ -194,7 +211,9 @@ export function present(t, rules, nowMs) {
     priority: t.priority || '', waitingFor: t.waitingFor || '', memo: t.memo || '', source: t.source || '',
     createdBy: t.createdBy || '', repeat: t.repeat || null, callTime: t.callTime || '',
     col: b.col, days: b.days, alert: b.alert, tags: b.tags, reason: b.reason,
-    holdKind: b.col === 'hold' ? b.holdKind : '',
+    holdKind: b.holdKind || '', check: b.check || '', turn: b.turn || '', waitOn: b.waitOn || '', checkAt: b.checkAt || '', result: b.result || '',
+    flow: t.flow || '', stage: b.stage || '', stageLabel: b.stageLabel || '', stageIdx: b.stageIdx ?? null, stageCount: b.stageCount || 0,
+    acts: stageOf(t) && b.col !== 'done' ? stageActs(t).map(a => a.label) : [],
   };
 }
 // 진행 업무 정렬: 긴급 → 빨간 표시(마감 지남·오래 끈 일) → 마감 가까운 순 → 오래된 순
@@ -212,33 +231,36 @@ export function sortIdea(a, b) {
 }
 // 장기 대기 정렬: 긴급 → 오래 기다린 순
 export function sortHold(a, b) {
-  return ((a.holdKind === 'reply' ? 0 : 1) - (b.holdKind === 'reply' ? 0 : 1)) || ((b.priority === 'high') - (a.priority === 'high')) || (b.days - a.days) || ((a.no || 0) - (b.no || 0));
+  return ((a.check === 'inbox' ? 0 : 1) - (b.check === 'inbox' ? 0 : 1)) || ((a.status === 'hold' ? 1 : 0) - (b.status === 'hold' ? 1 : 0)) || ((a.holdKind === 'internal' ? 1 : 0) - (b.holdKind === 'internal' ? 1 : 0)) || ((b.priority === 'high') - (a.priority === 'high')) || (b.days - a.days) || ((a.no || 0) - (b.no || 0));
 }
 // 통화 정렬: 날짜 → 시각(시간 미정은 그날 맨 뒤) → 번호
 export function sortCall(a, b) {
   return a.startDate.localeCompare(b.startDate) || ((a.callTime ? 0 : 1) - (b.callTime ? 0 : 1)) || a.callTime.localeCompare(b.callTime) || ((a.no || 0) - (b.no || 0));
 }
-const COL_ORDER = { call: 0, ing: 1, todo: 2, hold: 3, idea: 4, done: 5, trash: 6 };
+const COL_ORDER = { check: 0, call: 1, ing: 2, wait: 3, todo: 4, idea: 5, done: 6, trash: 7 };
 const VIEW_ALIAS = { today: 'open', missed: 'alert', recent_done: 'done' };   // 예전 이름도 받는다
-//   view: call(📞 통화, 날짜·시각 순) | ing(진행 업무) | todo(예정 업무) | hold(⏸ 장기 대기) | idea(제안 업무) | done(완료, 최근 순) | open(ing+todo) | all(ing+todo+idea)
+//   view: check(✅ 체크) | call(📞 통화, 날짜·시각 순) | ing(진행 — 우리 차례) | wait(⏳ 기다림 — 업체·기관·장기) | todo(예정) | hold(장기 대기) | inbox(받은 요청) | idea(제안 업무) | done(완료, 최근 순) | open(ing+todo) | all(ing+todo+idea)
 //         | alert(빨간 표시) | waiting(기다리는 중) | week(7일 안 마감) | trash
 export async function listTodos(db, { view = 'open', company, category, query, limit = 50 } = {}, nowMs = Date.now()) {
   view = VIEW_ALIAS[view] || view;
   const [docs, rules] = await Promise.all([db.list('todos'), loadRules(db)]);
   let rows = docs.map(d => present(d.data, rules, nowMs));
   const today = kstToday(nowMs);
-  const live = r => r.col === 'ing' || r.col === 'todo';
+  const live = r => r.col === 'ing' || r.col === 'todo' || r.col === 'wait' || r.col === 'check';
   const views = {
     call: r => r.col === 'call',
     ing: r => r.col === 'ing',
     todo: r => r.col === 'todo',
-    hold: r => r.col === 'hold',
+    check: r => r.col === 'check',
+    wait: r => r.col === 'wait' || (r.col === 'check' && r.check !== 'inbox'),
+    hold: r => r.status === 'hold',
+    inbox: r => r.status === 'inbox',
     idea: r => r.col === 'idea',
-    all: r => live(r) || r.col === 'idea' || r.col === 'call' || r.col === 'hold',
+    all: r => live(r) || r.col === 'idea' || r.col === 'call',
     done: r => r.col === 'done',
     open: live,
     alert: r => live(r) && r.alert,
-    waiting: r => live(r) && r.status === 'waiting',
+    waiting: r => r.status === 'waiting',
     week: r => live(r) && r.dueDate && r.dueDate <= addDaysStr(today, 7),
     trash: r => r.col === 'trash',
   };
@@ -248,7 +270,7 @@ export async function listTodos(db, { view = 'open', company, category, query, l
   if (category) rows = rows.filter(r => r.category === category);
   if (query) { const q = String(query).toLowerCase(); rows = rows.filter(r => (r.text + ' ' + r.memo + ' ' + r.companyName).toLowerCase().includes(q)); }
   if (view === 'done') rows.sort((a, b) => (b.doneDate || '').localeCompare(a.doneDate || '') || (b.no || 0) - (a.no || 0));
-  else rows.sort((a, b) => COL_ORDER[a.col] - COL_ORDER[b.col] || (a.col === 'todo' ? sortTodo(a, b) : a.col === 'idea' ? sortIdea(a, b) : a.col === 'hold' ? sortHold(a, b) : a.col === 'call' ? sortCall(a, b) : sortIng(a, b)));
+  else rows.sort((a, b) => COL_ORDER[a.col] - COL_ORDER[b.col] || (a.col === 'todo' ? sortTodo(a, b) : a.col === 'idea' ? sortIdea(a, b) : (a.col === 'wait' || a.col === 'check') ? sortHold(a, b) : a.col === 'call' ? sortCall(a, b) : sortIng(a, b)));
   return { view, total: rows.length, items: rows.slice(0, Math.max(1, Math.min(200, limit))) };
 }
 function addDaysStr(ds, n) { const d = new Date(ds + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }

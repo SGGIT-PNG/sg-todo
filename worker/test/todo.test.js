@@ -60,7 +60,7 @@ test('세 칸 계산 — 시작일만 보고, 나머지는 꼬리표', () => {
   assert.equal(b({ startDate: '2026-09-25' }).alert, true);                // 14일째
   // 긴급·기다림 꼬리표
   const w = b({ startDate: '2026-10-07', status: 'waiting', waitingFor: '고객 서류 회신', priority: 'high' });
-  assert.equal(w.col, 'ing'); assert.deepEqual(w.tags.map(x => x.t), ['긴급', '⏳ 고객 서류 회신']);
+  assert.equal(w.col, 'wait'); assert.deepEqual(w.tags.map(x => x.t), ['긴급', '⏳ 고객 서류 회신']);   // 2026-10-28 기다림은 진행에서 빠져 ⏳ 기다림 칸
   assert.equal(b({ status: 'done', doneAt: NOW }).col, 'done');
   assert.equal(b({ status: 'cancel' }).col, 'done');
   assert.equal(b({ deletedAt: NOW }).col, 'trash');
@@ -223,7 +223,7 @@ test('조회 · 상세 · 변동', async () => {
   await createTodo(ctxOf(db), { text: '연간신고', due: '2027-04-30' });                     // 앞으로
   await createTodo(ctxOf(db), { text: '다음 달 일', start: '11/2' });                          // 예정 업무
   const today = await listTodos(db, { view: 'today' }, NOW);                                 // 예전 이름 today = open
-  assert.deepEqual(today.items.map(i => i.label), ['T-0001', 'T-0002', 'T-0003', 'T-0004']);  // 빨간 표시(마감 지남) 먼저, 예정 업무는 뒤
+  assert.deepEqual(today.items.map(i => i.label), ['T-0001', 'T-0003', 'T-0002', 'T-0004']);  // 진행(빨간 표시 먼저) → ⏳ 기다림(T-0002) → 예정
   assert.equal(today.items[0].alert, true); assert.equal(today.items[3].col, 'todo');
   assert.equal((await listTodos(db, { view: 'missed' }, NOW)).total, 1);
   assert.equal((await listTodos(db, { view: 'open', company: '하이퍼다인' }, NOW)).total, 1);
@@ -459,31 +459,83 @@ test('📞 통화 — 시각 말 알아듣기 · 통화 칸 · 놓친 통화 · 
   assert.equal(core.bucket(db.store.get('todos/T-0001'), core.RULES_DEFAULT, NOW).col, 'done');
 });
 
-test('⏸ 장기 대기 — 넘기면 장기 대기 칸·빨간 표시 없음, 다시 진행하면 오늘부터', async () => {
+test('⏸ 장기 대기 — 넘기면 기다림 칸(장기)·빨간 표시 없음, 2주마다 체크, 다시 진행하면 오늘부터', async () => {
   const db = seed();
   const old = NOW - 40 * DAY;
   await createTodo(ctxOf(db, '정석진', 'web', old), { text: '오래 기다리는 일', company: '청림테크', due: '2026-09-20' });
   let t = (await listTodos(db, { view: 'ing' }, NOW)).items[0];
-  assert.equal(t.col, 'ing'); assert.equal(t.alert, true);   // 오래 끈 일 + 마감 지남 → 빨강
-  // 장기 대기로 넘김(무엇을 기다리는지 함께)
+  assert.equal(t.col, 'ing'); assert.equal(t.alert, true);
   await updateTodo(ctxOf(db), 'T-1', { status: 'hold', waitingFor: '정부 공고' });
   assert.equal((await listTodos(db, { view: 'ing' }, NOW)).total, 0);
   t = (await listTodos(db, { view: 'hold' }, NOW)).items[0];
-  assert.equal(t.col, 'hold'); assert.equal(t.alert, false);
-  assert.match(t.reason, /오늘 요청/); assert.match(t.reason, /정부 공고/); assert.match(t.reason, /마감 지남/);
+  assert.equal(t.col, 'wait'); assert.equal(t.alert, false); assert.equal(t.checkAt, '2026-10-22');   // 2주 뒤 체크
+  assert.match(t.reason, /오늘부터 기다림/); assert.match(t.reason, /정부 공고/); assert.match(t.reason, /마감 지남/);
   assert.match(acts(db).at(-1).summary, /장기 대기/);
-  // 열흘 뒤 메모를 고쳐도 「대기 N일째」는 대기 시작한 날 기준
-  await updateTodo(ctxOf(db, '정석진', 'web', NOW + 10 * DAY), 'T-1', { memo: '공고 다음 달' });
-  t = (await listTodos(db, { view: 'hold' }, NOW + 10 * DAY)).items[0];
-  assert.match(t.reason, /요청 10일째/);   // 기다리는 대상이 있으니 업체 회신 대기
-  assert.equal((await listTodos(db, { view: 'all' }, NOW + 10 * DAY)).total, 1);   // 기업별 보기에는 들어감
-  assert.equal((await listTodos(db, { view: 'open' }, NOW + 10 * DAY)).total, 0);  // 진행·예정 업무에는 안 들어감
-  // 다시 진행 → 시작일 오늘, 진행 업무 「오늘 시작」
-  const r = await updateTodo(ctxOf(db, '정석진', 'web', NOW + 12 * DAY), 'T-1', { status: 'ing' });
-  assert.equal(r.todo.startDate, core.kstToday(NOW + 12 * DAY));
-  t = (await listTodos(db, { view: 'ing' }, NOW + 12 * DAY)).items[0];
-  assert.equal(t.col, 'ing'); assert.match(t.reason, /오늘 시작/);
-  assert.equal(db.store.get('todos/T-0001').holdAt, null);
+  t = (await listTodos(db, { view: 'check' }, NOW + 14 * DAY)).items[0];
+  assert.equal(t.check, 'due');                                      // 2주 뒤 체크 칸으로
+  await updateTodo(ctxOf(db, '정석진', 'web', NOW + 14 * DAY), 'T-1', { check: 'later' });   // 「아직」 → 다시 2주 뒤
+  assert.equal(db.store.get('todos/T-0001').checkAt, '2026-11-05');
+  const r = await updateTodo(ctxOf(db, '정석진', 'web', NOW + 15 * DAY), 'T-1', { status: 'ing' });
+  assert.equal(r.todo.startDate, core.kstToday(NOW + 15 * DAY));
+  assert.equal(db.store.get('todos/T-0001').holdAt, null); assert.equal(db.store.get('todos/T-0001').checkAt, '');
+});
+
+test('✅ 체크 — 기다린 지 3일이면 체크 칸, 「아직」은 3일 뒤, 2주 넘으면 「계속 기다림」 → 장기 대기', async () => {
+  const db = seed();
+  await createTodo(ctxOf(db), { text: '서류 회신', company: '청림테크' });
+  await updateTodo(ctxOf(db), 'T-1', { status: 'waiting', waitingFor: '서류', waitOn: 'firm' });
+  let t = (await listTodos(db, { view: 'wait' }, NOW + 2 * DAY)).items[0];
+  assert.equal(t.col, 'wait'); assert.equal(t.turn, 'firm'); assert.match(t.reason, /📨 2일째 기다림/);
+  t = (await listTodos(db, { view: 'check' }, NOW + 3 * DAY)).items[0];
+  assert.equal(t.col, 'check'); assert.equal(t.check, 'due');
+  await updateTodo(ctxOf(db, '김학미', 'web', NOW + 3 * DAY), 'T-1', { check: 'later' });
+  assert.equal((await listTodos(db, { view: 'check' }, NOW + 4 * DAY)).total, 0);
+  assert.equal((await listTodos(db, { view: 'check' }, NOW + 6 * DAY)).total, 1);
+  t = (await listTodos(db, { view: 'check' }, NOW + 14 * DAY)).items[0];
+  assert.equal(t.check, 'long');                                     // 2주 넘음 — 확인일과 상관없이
+  await updateTodo(ctxOf(db, '정석진', 'web', NOW + 14 * DAY), 'T-1', { check: 'long' });
+  const d = db.store.get('todos/T-0001');
+  assert.equal(d.status, 'hold'); assert.equal(d.holdKind, 'reply'); assert.equal(d.checkAt, '2026-11-05');
+  // 받은 요청 → 체크 칸 맨 위, 맡기면 진행
+  await createTodo(ctxOf(db), { text: '상품가입 내역 보고서', company: '하이퍼다인', status: 'inbox' });
+  t = (await listTodos(db, { view: 'check' }, NOW)).items[0];
+  assert.equal(t.check, 'inbox'); assert.match(t.reason, /오늘 받은 요청/);
+  await updateTodo(ctxOf(db), 'T-2', { status: 'ing', due: '11/3' });
+  assert.equal((await listTodos(db, { view: 'ing' }, NOW)).items[0].label, 'T-0002');
+});
+
+test('업무 종류별 단계 — 정책자금: 신청 → 기관 차례 → 승인 → 서류 → 결과(부결은 종료(부결)), 보완 나옴', async () => {
+  const db = seed();
+  await createTodo(ctxOf(db), { text: '중진공 정책자금', company: '청림테크', flow: 'policy' });
+  let t = (await listTodos(db, { view: 'ing' }, NOW)).items[0];
+  assert.equal(t.stage, 'apply'); assert.deepEqual(t.acts, ['신청 완료']); assert.match(t.reason, /1\/4 사이트 신청/);
+  await updateTodo(ctxOf(db), 'T-1', { step: '신청 완료' });
+  t = (await listTodos(db, { view: 'wait' }, NOW)).items[0];
+  assert.equal(t.turn, 'org'); assert.equal(t.stage, 'decide'); assert.deepEqual(t.acts, ['승인', '부결', '보완 나옴']);
+  assert.match(acts(db).at(-1).summary, /단계 → 승인·부결 대기/);
+  await updateTodo(ctxOf(db), 'T-1', { step: '보완 나옴' });
+  t = (await listTodos(db, { view: 'ing' }, NOW)).items[0];
+  assert.match(t.reason, /2\/4 보완 처리/); assert.deepEqual(t.acts, ['보완 제출']);
+  await updateTodo(ctxOf(db), 'T-1', { step: '보완 제출' });
+  assert.equal((await listTodos(db, { view: 'wait' }, NOW)).items[0].stage, 'decide');
+  await updateTodo(ctxOf(db), 'T-1', { step: '승인' });
+  assert.equal((await listTodos(db, { view: 'ing' }, NOW)).items[0].stage, 'docs');
+  await updateTodo(ctxOf(db), 'T-1', { step: '전송 완료' });
+  await assert.rejects(updateTodo(ctxOf(db), 'T-1', { step: '합격' }), /누를 수 있는 것: 완료\(승인\) · 부결 · 보완 나옴/);
+  await updateTodo(ctxOf(db), 'T-1', { step: '부결' });
+  const d = (await listTodos(db, { view: 'done' }, NOW)).items[0];
+  assert.equal(d.result, 'fail'); assert.match(d.reason, /종료\(부결\)/);
+  // ISO — 심사일 정하면 예정, 그날 진행, 보고서 발송 → 인증서 발급 대기
+  await createTodo(ctxOf(db), { text: 'ISO 9001 심사', company: '하이퍼다인', flow: 'iso' });
+  t = (await listTodos(db, { view: 'wait' }, NOW)).items[0];
+  assert.equal(t.stage, 'audit'); assert.deepEqual(t.acts, ['심사 날짜 정함', '심사 끝']);
+  await updateTodo(ctxOf(db), 'T-2', { step: '심사 날짜 정함', date: '10/20' });
+  t = (await listTodos(db, { view: 'todo' }, NOW)).items[0];
+  assert.equal(t.label, 'T-0002'); assert.deepEqual(t.acts, ['심사 끝']);
+  await updateTodo(ctxOf(db), 'T-2', { step: '심사 끝' });
+  await updateTodo(ctxOf(db), 'T-2', { step: '발송 완료' });
+  await updateTodo(ctxOf(db), 'T-2', { step: '인증서 발급' });
+  assert.equal(db.store.get('todos/T-0002').result, 'ok'); assert.equal(db.store.get('todos/T-0002').status, 'done');
 });
 
 test('화면 글 — 업무 먼저, 회사 이름은 칩으로(글 앞의 회사 이름 떼기)', () => {
@@ -508,7 +560,7 @@ test('⏸ 장기 대기 두 가지 — 업체 회신 대기 · 내부 장기 대
   await updateTodo(ctxOf(db), 'T-3', { status: 'hold', waitingFor: '기관 연락' });   // 종류가 없으면 기다리는 대상 있음 → 업체 회신
   const rows = (await listTodos(db, { view: 'hold' }, NOW + 3 * DAY)).items;
   assert.deepEqual(rows.map(r => [r.no, r.holdKind]), [[1, 'reply'], [3, 'reply'], [2, 'internal']]);   // 업체 회신 먼저
-  assert.match(rows[0].reason, /요청 3일째/); assert.match(rows[2].reason, /대기 3일째/);
+  assert.match(rows[0].reason, /📨 3일째 기다림/); assert.match(rows[2].reason, /대기 3일째/);
   await assert.rejects(updateTodo(ctxOf(db), 'T-2', { holdKind: 'xx' }), /장기 대기 종류/);
   await updateTodo(ctxOf(db), 'T-1', { status: 'ing' });
   assert.equal(db.store.get('todos/T-0001').holdKind, null);   // 다시 진행하면 종류도 지움
