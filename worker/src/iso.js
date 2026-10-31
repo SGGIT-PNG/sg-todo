@@ -209,6 +209,9 @@ export const PROFILE_FIELDS = {
   dept_people: '부서별 담당자', env_facility: '환경 배출·방지시설', safety_facility: '안전 주요 설비', energy_facility: '에너지 주요 시설',
   haz_danger: '위험물질', haz_toxic: '유해물질', haz_air: '대기오염물질',
   atype_q: '심사유형(품질)', atype_e: '심사유형(환경)', atype_o: '심사유형(안전보건)',
+  // 2026-10-31 업체 맞춤 입력(문서를 회사에 맞추는 칸)
+  subind: '세부 사업', special_proc: '특별공정', field_work: '현장 설치·시공', main_products: '주요 제품·서비스',
+  raw_materials: '주요 원자재·부품', measure_equip: '검사·측정 장비', req_certs: '함께 준비하는 인증',
 };
 // 목록에 없는 칸도 이름 모양(영문 소문자·숫자·_)만 맞으면 그대로 보낸다 — iso-one이 칸을 늘려도 업무창은 고칠 필요 없게.
 // 값 검사는 iso-one이 한다(모르는 칸·틀린 값은 반영하지 않고 result에 「건너뜀」).

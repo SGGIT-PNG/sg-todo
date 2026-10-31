@@ -46,6 +46,19 @@ test('접수 값 → iso-one 칸', () => {
   assert.equal(x.profile.transfer_valid_q, '2023.11.28~2026.11.27'); assert.ok(!('transfer_valid_e' in x.profile));   // 14001은 신청 안 함
 });
 
+test('업체 맞춤 입력 → iso-one 칸(업종·세부 사업·특별공정 등)', () => {
+  const a = parseApply(Object.assign(base(), { ind: '화학·금속제조업', subind: 'weld', subind_label: '용접·제관·강구조물', products: '철골 구조물',
+    special_proc: '용접, 도장', field_work: '있다', raw_materials: 'H형강, 고력볼트', measure_equip: '도막두께 측정기', req_certs: '철강구조물 제작공장 인증' }), NOW);
+  assert.equal(a.profile.ind, '화학·금속제조업'); assert.equal(a.profile.subind, 'weld'); assert.equal(a.profile.main_products, '철골 구조물');
+  assert.equal(a.profile.special_proc, '용접, 도장'); assert.equal(a.profile.field_work, '있다'); assert.equal(a.profile.req_certs, '철강구조물 제작공장 인증');
+  const b = parseApply(Object.assign(base(), { ind: '없는업종', subind: 'Weld<script>', field_work: '모름' }), NOW);
+  assert.ok(!('ind' in b.profile)); assert.ok(!('subind' in b.profile)); assert.ok(!('field_work' in b.profile));
+  assert.ok(parseApply(base(), NOW).later.includes('업종'));
+  const h = applyDocHtml(Object.assign(base(), { ind: '화학·금속제조업', subind: 'weld', subind_label: '용접·제관·강구조물', special_proc: '용접', req_certs: 'KS 인증' }),
+    { no: 'ISO-261031-1234', at: '2026-10-31 10:00', bizno: BIZ, files: [], later: [] });
+  assert.match(h, /용접·제관·강구조물/); assert.match(h, /함께 준비하는 인증/); assert.match(h, /KS 인증/);
+});
+
 test('필수·형식 검사', () => {
   assert.throws(() => parseApply(Object.assign(base(), { bizno: '1234567890' }), NOW), /사업자등록번호/);
   assert.throws(() => parseApply(Object.assign(base(), { stds: [] }), NOW), /인증 규격/);

@@ -43,10 +43,11 @@ export const BRANDS = { jd: { name: '정도파트너스', folderEnv: 'APPLY_DRIV
 export const brandOf = (b) => (BRANDS[b] ? b : 'jd');
 // iso-one이 아직 다루지 않는 규격(SG 접수 화면에서만) — 접수 원본·할 일·접수서에만 남긴다
 const STD_MORE = { isms: 'ISO 27001 정보보호', cms: 'ISO 37301 컴플라이언스', abms: 'ISO 37001 부패방지' };
+const IND = ['제조업', '화학·금속제조업', '식품업', '건설업', '환경·폐기물처리업', '서비스업', '정보통신업', '도소매업', '운수·물류업', '의료', '교육', '금융'];
 const PERMIT = { '있음': '있음 — 첨부 서류(허가증·신고증·등록증)로 확인', '없음': '없음' };
 
 // 비워 두면 「추후 요청」으로 알려 줄 선택 항목 [칸, 이름]
-export const LATER = [['emp_reg', '인원 구분(상근·일용·외주)'], ['dept_names', '부서 이름'], ['process', '공정 순서'], ['equip', '주요 설비'],
+export const LATER = [['ind', '업종'], ['emp_reg', '인원 구분(상근·일용·외주)'], ['dept_names', '부서 이름'], ['process', '공정 순서'], ['equip', '주요 설비'],
   ['customer', '주요 매출처'], ['supplier', '주요 매입처'], ['design', '설계·개발 여부'], ['multi_site', '복수 사업장 여부'],
   ['has_permit', '인허가 여부'], ['cert_exp', '다른 기관 심사 경험']];
 
@@ -86,6 +87,10 @@ export function parseApply(d, nowMs = Date.now()) {
     dept_names: t(d.dept_names), dept_people: t(d.dept_people),
     multi_site: ['예', '아니오'].includes(t(d.multi_site)) ? t(d.multi_site) : '', sites: t(d.multi_site) === '예' ? t(d.sites, 2000) : '',
     process_order: t(d.process, 2000), prod_facility: t(d.equip, 2000),
+    // 2026-10-31 업체 맞춤 입력 — 업종·세부 사업(iso-one이 목록 id인지 확인)·특별공정·현장 설치·제품·원자재·측정장비·함께 준비하는 인증
+    ind: IND.includes(t(d.ind)) ? t(d.ind) : '', subind: /^[a-z][a-z0-9_]{1,30}$/.test(t(d.subind)) ? t(d.subind) : '',
+    special_proc: t(d.special_proc, 300), field_work: ['있다', '없다'].includes(t(d.field_work)) ? t(d.field_work) : '',
+    main_products: t(d.products, 500), raw_materials: t(d.raw_materials, 1000), measure_equip: t(d.measure_equip, 1000), req_certs: t(d.req_certs, 300),
     outsource: ['있다', '없다'].includes(t(d.outsource)) ? t(d.outsource) : '', outsource_proc: t(d.outsource) === '있다' ? t(d.outsource_proc, 2000) : '',
     customer: t(d.customer), supplier: t(d.supplier),
     design: ['있다', '없다'].includes(t(d.design)) ? t(d.design) : '',
@@ -175,14 +180,15 @@ export function applyDocHtml(d, meta) {
       row('사업장 주소', (/^\d{5}$/.test(v('addr_zip')) ? '(' + v('addr_zip') + ') ' : '') + v('addr')), row('대표 전화', v('tel')), row('팩스', v('fax')), row('설립일', v('founding')), row('홈페이지', v('homepage')), row('인증서 받을 주소', d.ship_same === true ? '사업장 주소와 같음' : (/^\d{5}$/.test(v('ship_zip')) ? '(' + v('ship_zip') + ') ' : '') + v('ship_addr'))]),
     sec('2. 인증 신청', [row('인증 규격', stds.map(k => STD_NAME[k] || k).join(', ') + (has('etc') && v('std_etc') ? ' (' + v('std_etc') + ')' : '')),
       row('심사 유형', ATYPE_NAME[v('atype')] || v('atype')), row('인증범위', v('scope')), row('설계·개발 업무', v('design')),
-      row('희망 심사 시기', v('when')), row('인증서가 필요한 날짜', v('cert_need'))]),
+      row('희망 심사 시기', v('when')), row('인증서가 필요한 날짜', v('cert_need')), row('함께 준비하는 인증', v('req_certs'))]),
     sec('3. 담당자', [row('ISO 담당자', v('mgr')), row('부서 / 직위', v('mgr_title')), row('휴대전화', v('mgr_hp')), row('이메일', v('mgr_email'))]
       .concat(has('o') ? [row('안전보건 관리 담당자', v('safe_mgr')), row('안전보건 부서 / 직위', v('safe_title')), row('안전보건 휴대전화', v('safe_hp')), row('안전보건 이메일', v('safe_email'))] : [])
       .concat([row('세금계산서 담당자', v('tax_mgr')), row('세금계산서 이메일', v('tax_email'))])),
     sec('4. 인원 · 조직', [row('총 인원', v('emp_total')), row('근무 형태', v('shift')), row('상근직', v('emp_reg')), row('일용직 · 임시직', v('emp_day')),
       row('외주 · 파견', v('emp_out')), row('부서 이름', v('dept_names')), row('부서별 담당자', v('dept_people'))]),
     sec('5. 사업장 · 공정', [row('다른 사업장도 인증', v('multi_site'))].concat(v('multi_site') === '예' ? [row('추가 사업장', v('sites'))] : [])
-      .concat([row('주요 제품 · 서비스', v('products')), row('공정 순서', v('process')), row('주요 설비', v('equip')), row('외주 공정', v('outsource'))])
+      .concat([row('업종', v('ind')), row('세부 사업', v('subind_label') || v('subind')), row('주요 제품 · 서비스', v('products')), row('공정 순서', v('process')), row('특별공정', v('special_proc')), row('현장 설치 · 시공', v('field_work')),
+        row('주요 원자재 · 부품', v('raw_materials')), row('주요 설비', v('equip')), row('검사 · 측정 장비', v('measure_equip')), row('외주 공정', v('outsource'))])
       .concat(v('outsource') === '있다' ? [row('외주 공정 내용', v('outsource_proc'))] : [])
       .concat([row('주요 매출처(고객사)', v('customer')), row('주요 매입처(공급업체)', v('supplier'))])),
     sec('6. 인허가 · 환경 · 안전', [row('인허가 · 신고 · 등록', v('has_permit'))]

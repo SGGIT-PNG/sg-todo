@@ -56,6 +56,7 @@ description: "ISO one 에이전트 — 구글 드라이브의 고객사 자료(�
 | 시설·유해물질 | `env_facility`(배출·방지시설) `safety_facility` `energy_facility` `haz_danger` `haz_toxic` `haz_air` | 요청서·인허가증 |
 | 부서별 담당자 | `dept_people`(「관리팀:홍길동, 생산팀:김철수」) | 요청서·조직도 |
 | 규격별 심사유형 | `atype_q` `atype_e` `atype_o`(규격마다 다를 때만, 예 전환 업체 환경만 사후) | 요청서·이전 인증서 |
+| 업체 맞춤(문서를 회사에 맞춤) | `subind`(세부 사업 id — `weld` 용접·제관·강구조물, `seasoning` 조미식품·소스, `press` 프레스·판금, `coating` 도장·도금, `machining` 정밀가공, `meat` 식육 등. 확실할 때만, 모르면 빼면 iso-one이 인증범위·KSIC로 자동 판정) `special_proc`(특별공정 쉼표: 용접·도장·도금·표면처리·열처리·가열·살균·사출·성형·접착·실링·납땜·없음) `field_work`(현장 설치·시공 있다·없다) `main_products` `raw_materials` `measure_equip` `req_certs`(함께 준비하는 인증, 예 철강구조물 제작공장 인증) | 업체카드·회사소개서·요청서 |
 | 관리번호 | `mgno_q` `mgno_e` `mgno_s` | **사용자가 말했을 때만**(인증원 부여) |
 | 심사일 | `s2Date` | **사용자가 말했을 때만.** 1단계·나머지 일정은 iso-one 자동 |
 
