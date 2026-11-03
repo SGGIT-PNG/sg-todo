@@ -48,11 +48,14 @@ test('접수 값 → iso-one 칸', () => {
 
 test('업체 맞춤 입력 → iso-one 칸(업종·세부 사업·특별공정 등)', () => {
   const a = parseApply(Object.assign(base(), { ind: '화학·금속제조업', subind: 'weld', subind_label: '용접·제관·강구조물', products: '철골 구조물',
-    special_proc: '용접, 도장', field_work: '있다', raw_materials: 'H형강, 고력볼트', measure_equip: '도막두께 측정기', req_certs: '철강구조물 제작공장 인증' }), NOW);
+    special_proc: '용접, 도장', field_work: '있다', raw_materials: 'H형강, 고력볼트', measure_equip: '도막두께 측정기', req_certs: '철강구조물 제작공장 인증', const_sites: '케이스퀘어 복합시설 / 철골 제작·설치 / 2026.09.01~2026.11.30 / 100 / 서울 성수동\n신광교 지식산업센터 / 철골 / 2025.06.09~2029.05.13 / 70 / 경기 용인' }), NOW);
   assert.equal(a.profile.ind, '화학·금속제조업'); assert.equal(a.profile.subind, 'weld'); assert.equal(a.profile.main_products, '철골 구조물');
+  assert.ok(a.profile.const_sites.includes('케이스퀘어 복합시설') && a.profile.const_sites.includes('\n신광교'));
   assert.equal(a.profile.special_proc, '용접, 도장'); assert.equal(a.profile.field_work, '있다'); assert.equal(a.profile.req_certs, '철강구조물 제작공장 인증');
   const b = parseApply(Object.assign(base(), { ind: '없는업종', subind: 'Weld<script>', field_work: '모름' }), NOW);
   assert.ok(!('ind' in b.profile)); assert.ok(!('subind' in b.profile)); assert.ok(!('field_work' in b.profile));
+  const c2 = parseApply(Object.assign(base(), { field_work: '없다', const_sites: '현장 / 내용' }), NOW);
+  assert.ok(!c2.profile.const_sites);   // 현장 설치가 없으면 시공현장 목록은 보내지 않음
   assert.ok(parseApply(base(), NOW).later.includes('업종'));
   const h = applyDocHtml(Object.assign(base(), { ind: '화학·금속제조업', subind: 'weld', subind_label: '용접·제관·강구조물', special_proc: '용접', req_certs: 'KS 인증' }),
     { no: 'ISO-261031-1234', at: '2026-10-31 10:00', bizno: BIZ, files: [], later: [] });

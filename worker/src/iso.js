@@ -201,7 +201,7 @@ export const PROFILE_FIELDS = {
   iaf: 'IAF 코드', iaf_sub: 'IAF 세부코드', design: '설계 유무',
   mgno_q: '관리번호(품질)', mgno_e: '관리번호(환경)', mgno_s: '관리번호(안전)', ncr_action_date: '부적합 시정조치 일자',
   // 2026-10-23 정보요청서 추가 칸 (iso-one이 Y·N·있음 같은 답을 예·아니오로 바꿔 받음)
-  multi_site: '복수 사업장', sites: '추가 사업장', outsource: '외주공정', outsource_proc: '외주 공정 내용',
+  multi_site: '복수 사업장', sites: '추가 사업장', const_sites: '시공현장 목록', outsource: '외주공정', outsource_proc: '외주 공정 내용',
   permits: '인허가 사항', env_permit: '환경 허가·신고', site_type: '사업장 입지조건',
   cert_exp: '타 기관 심사경험', cert_exp_org: '심사경험 기관명',
   transfer: '전환심사', transfer_org: '이전 인증기관', transfer_last_date: '이전 기관 최근 심사일', transfer_last_type: '이전 기관 최근 심사유형',

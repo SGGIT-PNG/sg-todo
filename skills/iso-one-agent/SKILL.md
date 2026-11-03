@@ -51,6 +51,7 @@ description: "ISO one 에이전트 — 구글 드라이브의 고객사 자료(�
 | IAF 코드·세부코드 | `iaf` `iaf_sub` | 종목·주요 제품의 KSIC로 판정(세부코드 = KSIC 4~5자리, 예 조미료 10832 → `1083`, IAF 03). 애매하면 빼고 보고에 「IAF 확인 필요」 |
 | 규격·심사 유형 | `certs` `atype` | 요청서·업체카드·할 일(「○○ ISO 9001·14001 최초」). 모르면 빼고(iso-one이 3규격·최초로 등록하고 확인 필요 표시) |
 | 사업장·외주 | `multi_site`(예·아니오) `sites`(한 줄에 한 곳: 명칭 / 주소 / 인원 / 활동) `outsource`(있다·없다) `outsource_proc` | 요청서·업체카드 |
+| 시공현장 | `const_sites`(인증범위에 설치·시공이 있는 업체 — 인증원 요구. 한 줄에 한 현장: 공사명 / 공사내용 / 공사기간 / 공정률(%) / 현장위치 / 이동시간 / 비고, 진행 중이 없으면 최근 공사) | 업체 시공현장 목록(엑셀)·요청서 |
 | 인허가 | `permits`(인허가증 그대로, 예 「대기배출시설 4종 신고, 폐수 5종」) `env_permit`(예·아니오) `site_type`(공업단지·도시·농촌·상수원 보호구역·특별대책지역·기타) | 요청서·인허가증 사본 |
 | 심사경험·전환 | `cert_exp`(있음·없음) `cert_exp_org` / 전환이면 `transfer_org` `transfer_last_date` `transfer_last_type` `transfer_valid_q`·`_e`·`_o`(「2024-01-10~2027-01-09」) | 요청서·이전 인증서 사본. **전환심사 여부 `transfer`는 SG가 정함**(사용자가 말했을 때만) |
 | 시설·유해물질 | `env_facility`(배출·방지시설) `safety_facility` `energy_facility` `haz_danger` `haz_toxic` `haz_air` | 요청서·인허가증 |

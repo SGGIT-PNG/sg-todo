@@ -90,6 +90,8 @@ export function parseApply(d, nowMs = Date.now()) {
     // 2026-10-31 업체 맞춤 입력 — 업종·세부 사업(iso-one이 목록 id인지 확인)·특별공정·현장 설치·제품·원자재·측정장비·함께 준비하는 인증
     ind: IND.includes(t(d.ind)) ? t(d.ind) : '', subind: /^[a-z][a-z0-9_]{1,30}$/.test(t(d.subind)) ? t(d.subind) : '',
     special_proc: t(d.special_proc, 300), field_work: ['있다', '없다'].includes(t(d.field_work)) ? t(d.field_work) : '',
+    // 2026-11-03 시공현장 목록(인증범위에 설치·시공 — 인증원 요구). 현장 설치 「있다」 또는 건설업일 때만
+    const_sites: (t(d.field_work) === '있다' || t(d.ind) === '건설업') ? t(d.const_sites, 2000) : '',
     main_products: t(d.products, 500), raw_materials: t(d.raw_materials, 1000), measure_equip: t(d.measure_equip, 1000), req_certs: t(d.req_certs, 300),
     outsource: ['있다', '없다'].includes(t(d.outsource)) ? t(d.outsource) : '', outsource_proc: t(d.outsource) === '있다' ? t(d.outsource_proc, 2000) : '',
     customer: t(d.customer), supplier: t(d.supplier),
@@ -187,7 +189,7 @@ export function applyDocHtml(d, meta) {
     sec('4. 인원 · 조직', [row('총 인원', v('emp_total')), row('근무 형태', v('shift')), row('상근직', v('emp_reg')), row('일용직 · 임시직', v('emp_day')),
       row('외주 · 파견', v('emp_out')), row('부서 이름', v('dept_names')), row('부서별 담당자', v('dept_people'))]),
     sec('5. 사업장 · 공정', [row('다른 사업장도 인증', v('multi_site'))].concat(v('multi_site') === '예' ? [row('추가 사업장', v('sites'))] : [])
-      .concat([row('업종', v('ind')), row('세부 사업', v('subind_label') || v('subind')), row('주요 제품 · 서비스', v('products')), row('공정 순서', v('process')), row('특별공정', v('special_proc')), row('현장 설치 · 시공', v('field_work')),
+      .concat([row('업종', v('ind')), row('세부 사업', v('subind_label') || v('subind')), row('주요 제품 · 서비스', v('products')), row('공정 순서', v('process')), row('특별공정', v('special_proc')), row('현장 설치 · 시공', v('field_work')), row('시공현장 목록', v('const_sites')),
         row('주요 원자재 · 부품', v('raw_materials')), row('주요 설비', v('equip')), row('검사 · 측정 장비', v('measure_equip')), row('외주 공정', v('outsource'))])
       .concat(v('outsource') === '있다' ? [row('외주 공정 내용', v('outsource_proc'))] : [])
       .concat([row('주요 매출처(고객사)', v('customer')), row('주요 매입처(공급업체)', v('supplier'))])),
