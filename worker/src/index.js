@@ -39,6 +39,7 @@ import { previewAuto, runAuto } from './auto.js';
 import * as oauth from './oauth.js';
 import { handleMcpPost } from './mcp.js';
 import { applyConfig, submitApply, collectFiles } from './apply.js';
+import { applyBizConfig, collectFiles as collectBizFiles, submitApplyBiz } from './apply-biz.js';
 import { listLeads, leadStats, importLeads, actLead, syncMeta, fromSheetRow, classifyProduct } from './leads.js';
 
 const DAILY_CRON = '0 21 * * *';
@@ -108,6 +109,18 @@ export async function handle(request, env, deps = {}) {
       const files = await collectFiles(form);
       const db = deps.db || restDb({ projectId: env.FIREBASE_PROJECT, saKey: env.GCP_SA_KEY });
       return json(await submitApply(env, { data, files }, { db, fetchFn: deps.fetchFn || fetch, nowMs, ip: request.headers.get('cf-connecting-ip') || '' }), 200, cors);
+    }   
+    // ── 📋 메인비즈·이노비즈 온라인 접수(공개 — 로그인 없음). maininno.web.app에서 부른다 ──
+    if (path === '/api/apply-biz/config' && request.method === 'GET') return json(applyBizConfig(env), 200, cors);
+    if (path === '/api/apply-biz' && request.method === 'POST') {
+      const len = Number(request.headers.get('content-length') || 0);
+      if (len > 45 * 1024 * 1024) throw new RuleError('첨부 파일은 모두 합쳐 40MB까지입니다');
+      const form = await request.formData().catch(() => { throw new RuleError('접수 내용을 읽지 못했습니다. 화면을 새로 고친 뒤 다시 제출해 주세요'); });
+      let data;
+      try { data = JSON.parse(String(form.get('data') || '')); } catch { throw new RuleError('접수 내용을 읽지 못했습니다. 화면을 새로 고친 뒤 다시 제출해 주세요'); }
+      const files = await collectBizFiles(form);
+      const db = deps.db || restDb({ projectId: env.FIREBASE_PROJECT, saKey: env.GCP_SA_KEY });
+      return json(await submitApplyBiz(env, { data, files }, { db, fetchFn: deps.fetchFn || fetch, nowMs, ip: request.headers.get('cf-connecting-ip') || '' }), 200, cors);
     }
 
     const actor = await authenticate(request, env, { fetchFn: deps.fetchFn, nowMs });
