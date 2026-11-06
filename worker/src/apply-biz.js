@@ -270,7 +270,7 @@ export async function submitApplyBiz(env, { data, files = [] }, deps) {
   try {
     todo = await createTodo({ db, actor: { name: '공동', via: 'apply' }, nowMs, companies: [] },
       { text: '[' + a.companyName + '] ' + CERT_NAME[a.cert] + ' 접수 확인 (' + no + ')', category: TODO_CATEGORY, memo },
-      { source: 'biz', sourceRef: 'applybiz:' + no, autoCompany: false });
+     { source: 'cert', sourceRef: 'applybiz:' + no, autoCompany: false });
   } catch (e) { console.error('[메인이노 접수] 할 일 만들기 실패', e && e.message); }
 
   return { ok: true, receipt: no, later, filesSaved: saved.length, todo: (todo && todo.label) || '' };
