@@ -15,7 +15,7 @@ FIREBASE_PROJECT = "sg-crm-f9adc"
 # 로그인 허용 메일 (쉼표로 구분) — SGCRM CRM_ALLOWED_EMAILS · Firestore 규칙과 같게
 ALLOWED_EMAILS = "sgceo@sgsolutionss.com"
 # 브라우저에서 부를 수 있는 화면 주소 (쉼표로 구분)
-ALLOWED_ORIGINS = "https://sggit-png.github.io,http://localhost:8765,https://iso-one.web.app,https://iso-one.firebaseapp.com"
+ALLOWED_ORIGINS = "https://sggit-png.github.io,http://localhost:8765,https://iso-one.web.app,https://iso-one.firebaseapp.com,https://maininno.web.app,https://maininno.firebaseapp.com"
 # 📣 광고 DB — 광고가 나가는 페이스북 페이지 번호(여럿이면 쉼표). 비밀값 아님. 토큰은 Secret META_TOKEN
 # 🏅 ISO 온라인 접수 — 접수 업체를 등록할 iso-one 계정(이메일). 비우면 ALLOWED_EMAILS 첫 번째
 APPLY_ASSIGNEE = "sgceo@sgsolutionss.com"
