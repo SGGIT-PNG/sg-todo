@@ -23,6 +23,8 @@
 //   POST   /api/leads/D-0001/act      {action: noans|talk|schedule|won|lost|reopen|memo, date?, time?, memo?}
 //   POST   /api/leads/sync            {full?}  Meta에서 지금 가져오기 (평소엔 5분마다 예약 작업)
 //   GET    /api/apply/config · POST /api/apply   🏅 ISO 인증심사 온라인 접수 — 로그인 없음(공개), apply.js
+//   GET    /api/apply-biz/config · POST /api/apply-biz   📋 메인비즈·이노비즈 온라인 접수 — 로그인 없음(공개), apply-biz.js
+//   GET    /api/drive-get/config · POST /api/drive-get   📎 접수 첨부 내려주기 — 로그인 없음(공개, 열쇠 DRIVE_GET_TOKEN), drive-get.js
 //   POST   /mcp                           Claude 채팅 도구(MCP) — 출입증은 /oauth/* 로그인으로 (mcp.js · oauth.js)
 //   GET    /.well-known/oauth-protected-resource · /.well-known/oauth-authorization-server   커넥터 안내 문서
 //
@@ -40,6 +42,7 @@ import * as oauth from './oauth.js';
 import { handleMcpPost } from './mcp.js';
 import { applyConfig, submitApply, collectFiles } from './apply.js';
 import { applyBizConfig, collectFiles as collectBizFiles, submitApplyBiz } from './apply-biz.js';
+import { driveGetConfig, handleDriveGet } from './drive-get.js';
 import { listLeads, leadStats, importLeads, actLead, syncMeta, fromSheetRow, classifyProduct } from './leads.js';
 
 const DAILY_CRON = '0 21 * * *';
@@ -121,6 +124,14 @@ export async function handle(request, env, deps = {}) {
       const files = await collectBizFiles(form);
       const db = deps.db || restDb({ projectId: env.FIREBASE_PROJECT, saKey: env.GCP_SA_KEY });
       return json(await submitApplyBiz(env, { data, files }, { db, fetchFn: deps.fetchFn || fetch, nowMs, ip: request.headers.get('cf-connecting-ip') || '' }), 200, cors);
+    }
+
+    // ── 📎 접수 첨부 내려주기(공개 — 로그인 대신 열쇠로 막는다). 메인이노 프로그램이 부른다 ──
+    // 열쇠(DRIVE_GET_TOKEN)가 없으면 길이 아예 거절하고, 접수 폴더 밑의 파일만 내준다.
+    // **json()으로 감싸지 않는다** — 파일 바이트를 그대로 주는 길이라 Response를 직접 돌려준다.
+    if (path === '/api/drive-get/config' && request.method === 'GET') return json(driveGetConfig(env), 200, cors);
+    if (path === '/api/drive-get' && request.method === 'POST') {
+      return handleDriveGet(env, request, { fetchFn: deps.fetchFn || fetch, nowMs });
     }
 
     const actor = await authenticate(request, env, { fetchFn: deps.fetchFn, nowMs });
