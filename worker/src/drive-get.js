@@ -112,7 +112,13 @@ export async function handleDriveGet(env, request, deps = {}) {
   }
 
   if (!(await insideApplyFolder(token, info, env[FOLDER_ENV], fileId, fetchFn))) {
-    return fail(403, '접수 폴더의 파일이 아닙니다');
+    // **무엇을 보고 막았는지 함께 말한다** — 접수 폴더를 옮기거나 설정이 어긋났을 때
+    // 이 말이 없으면 「막혔다」만 알 수 있고 어디가 틀렸는지 알 수 없다.
+    // 열쇠를 가진 쪽에만 가고, 그 쪽은 이미 파일을 받을 수 있는 사람이라 새로 새는 것이 없다.
+    return new Response(JSON.stringify({
+      ok: false, error: '접수 폴더의 파일이 아닙니다',
+      root: env[FOLDER_ENV], parents: info.parents || null,
+    }), { status: 403, headers: { 'content-type': 'application/json; charset=UTF-8' } });
   }
 
   const size = info.size === undefined ? null : Number(info.size);
